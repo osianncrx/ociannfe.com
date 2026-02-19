@@ -1,0 +1,19 @@
+# OpenSSL config para habilitar algoritmos legacy (ej. RC2-40-CBC)
+# Necesario para abrir .p12 emitidos por Hacienda CR con OpenSSL 3.x
+# Uso: export OPENSSL_CONF=/ruta/al/proyecto/config/openssl-legacy.cnf
+#      (configurar en Apache SetEnv, php-fpm pool env o php.ini)
+
+openssl_conf = openssl_init
+
+[openssl_init]
+providers = provider_sect
+
+[provider_sect]
+default = default_sect
+legacy = legacy_sect
+
+[default_sect]
+activate = 1
+
+[legacy_sect]
+activate = 1

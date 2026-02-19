@@ -1,0 +1,128 @@
+<?php
+require __DIR__ . '/dbr.php'; // aquí carga $facturador y $db (mysqli)
+header('Content-Type: application/json; charset=utf-8');
+
+// Asegura $input para Sucursal/Terminal/TipoDoc
+$raw = file_get_contents('php://input');
+$input = is_string($raw) && $raw !== '' ? json_decode($raw, true) : [];
+if (!is_array($input)) $input = [];
+
+if (!($db instanceof mysqli)) {
+    http_response_code(500);
+    echo json_encode(['error' => 'La conexión a la base de datos no es válida']);
+    exit;
+}
+
+// =====================
+// Parámetros base
+// =====================
+$id_empresa = 64;
+$Sucursal   = $input['Sucursal'] ?? "001";
+$Terminal   = $input['Terminal'] ?? "00001";
+$TipoDoc    = $input['TipoDoc']  ?? "01";
+
+// =====================
+// Empresa (Emisor) desde BD
+// =====================
+$stmtEmp = $db->prepare("
+    SELECT CodigoActividad, Nombre, Tipo, Numero, Provincia, Canton, Distrito, OtrasSenas, CorreoElectronico
+    FROM fe_empresas
+    WHERE id_empresa = ?
+    LIMIT 1
+");
+if (!$stmtEmp) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Error preparando consulta fe_empresas: ' . $db->error]);
+    exit;
+}
+$stmtEmp->bind_param("i", $id_empresa);
+$stmtEmp->execute();
+$resultEmp = $stmtEmp->get_result();
+if (!$empresaData = $resultEmp->fetch_assoc()) {
+    http_response_code(404);
+    echo json_encode(['error' => 'Empresa no encontrada para id_empresa: ' . $id_empresa]);
+    exit;
+}
+$stmtEmp->close();
+
+// =====================
+// Consecutivo
+// =====================
+$stmt = $db->prepare("SELECT clave FROM fe_recepciones WHERE id_empresa = ? ORDER BY id_recepcion DESC LIMIT 1");
+if (!$stmt) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Error preparando consulta consecutivo: ' . $db->error]);
+    exit;
+}
+$stmt->bind_param("i", $id_empresa);
+$stmt->execute();
+$result = $stmt->get_result();
+$ultimaClave = $result->fetch_assoc()['clave'] ?? null;
+$stmt->close();
+
+if ($ultimaClave) {
+    // Consecutivo (10 dígitos desde la posición 31)
+    $ultimoConsecutivoStr = substr($ultimaClave, 31, 10);
+    $ultimoConsecutivoInt = (int) ltrim($ultimoConsecutivoStr, '0');
+    $nuevoConsecutivoInt  = $ultimoConsecutivoInt + 1;
+    $nuevoConsecutivoStr  = str_pad((string)$nuevoConsecutivoInt, 10, '0', STR_PAD_LEFT);
+    $NumeroConsecutivo    = $Sucursal . $Terminal . $TipoDoc . $nuevoConsecutivoStr;
+} else {
+    $NumeroConsecutivo = "00100001010000000001";
+}
+
+// =====================
+// Datos de recepción
+// =====================
+$datos = [
+    'tipo' => 'R', // recepción
+    'Clave' => '50630092500310293428500100001010000000001116948442',
+    'NumeroConsecutivoReceptor' => $NumeroConsecutivo,
+    'NumeroCedulaReceptor' => '603960916',
+    'FechaEmision' => '30 julio 2018',
+    'Emisor' => [
+        'Nombre' => 'Soluciones Induso',
+        'Identificacion' => [
+            'Tipo' => '01',
+            'Numero' => '603960916'
+        ],
+        'Ubicacion' => '600 metros oeste entrada a La Manchuria',
+        'CorreoElectronico' => 'josiasmc@emypeople.net'
+    ],
+];
+
+// =====================
+// Enviar el XML como FILE (multipart) a recepcionar()
+// =====================
+$xmlFilename = '50630092500310293428500100001010000000001116948442.xml';
+$xmlPath = __DIR__ . DIRECTORY_SEPARATOR . $xmlFilename;
+
+if (!is_file($xmlPath) || !is_readable($xmlPath)) {
+    http_response_code(400);
+    echo json_encode(['error' => "No se puede leer el archivo XML: {$xmlFilename}"]);
+    exit;
+}
+
+// Lee el XML como STRING (lo que ZipArchive::addFromString necesita)
+$xmlContent = file_get_contents($xmlPath);
+if ($xmlContent === false) {
+    http_response_code(500);
+    echo json_encode(['error' => "No se pudo leer el contenido de: {$xmlFilename}"]);
+    exit;
+}
+
+try {
+    // Si recepcionar() hace: $zip->addFromString('comprobante.xml', $xml);
+    // pásale el contenido de texto del XML:
+    $respuesta = $facturador->recepcionar($xmlContent, $datos, $id_empresa);
+
+    echo json_encode([
+        'ok' => true,
+        'mensaje' => 'Recepción enviada',
+        'respuesta' => $respuesta,
+        'consecutivo' => $NumeroConsecutivo
+    ]);
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Fallo recepcionar: ' . $e->getMessage()]);
+}
