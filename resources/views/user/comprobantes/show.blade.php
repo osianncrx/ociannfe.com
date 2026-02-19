@@ -24,10 +24,16 @@
                             <dd class="col-sm-8"><code class="small">{{ $comprobante->clave }}</code></dd>
 
                             <dt class="col-sm-4">Consecutivo</dt>
-                            <dd class="col-sm-8"><code>{{ $comprobante->consecutivo }}</code></dd>
+                            <dd class="col-sm-8"><code>{{ $comprobante->NumeroConsecutivo }}</code></dd>
 
-                            <dt class="col-sm-4">Fecha</dt>
-                            <dd class="col-sm-8">{{ $comprobante->created_at->format('d/m/Y H:i:s') }}</dd>
+                            <dt class="col-sm-4">Fecha Emisión</dt>
+                            <dd class="col-sm-8">{{ $comprobante->FechaEmision ? $comprobante->FechaEmision->format('d/m/Y H:i:s') : ($comprobante->FechaCreacion ?? '—') }}</dd>
+
+                            <dt class="col-sm-4">Condición Venta</dt>
+                            <dd class="col-sm-8">{{ $comprobante->CondicionVenta ?? '—' }}</dd>
+
+                            <dt class="col-sm-4">Medio de Pago</dt>
+                            <dd class="col-sm-8">{{ $comprobante->MedioPago ?? '—' }}</dd>
                         </dl>
                     </div>
                     <div class="col-md-6">
@@ -38,7 +44,7 @@
                             </dd>
 
                             <dt class="col-sm-4">Mensaje Hacienda</dt>
-                            <dd class="col-sm-8">{{ $comprobante->mensaje_hacienda ?? 'Sin respuesta' }}</dd>
+                            <dd class="col-sm-8">{{ $comprobante->mensaje ?? 'Sin respuesta' }}</dd>
                         </dl>
                     </div>
                 </div>
@@ -54,13 +60,15 @@
             <div class="card-body">
                 <dl class="row mb-0">
                     <dt class="col-sm-4">Nombre</dt>
-                    <dd class="col-sm-8">{{ $comprobante->emisor_nombre ?? 'N/A' }}</dd>
+                    <dd class="col-sm-8">{{ $comprobante->Emisor_Nombre ?? 'N/A' }}</dd>
 
-                    <dt class="col-sm-4">Cédula</dt>
-                    <dd class="col-sm-8"><code>{{ $comprobante->emisor_cedula ?? 'N/A' }}</code></dd>
+                    <dt class="col-sm-4">Identificación</dt>
+                    <dd class="col-sm-8">
+                        <code>{{ $comprobante->Emisor_TipoIdentificacion ?? '' }}-{{ $comprobante->Emisor_NumeroIdentificacion ?? 'N/A' }}</code>
+                    </dd>
 
                     <dt class="col-sm-4">Email</dt>
-                    <dd class="col-sm-8">{{ $comprobante->emisor_email ?? 'N/A' }}</dd>
+                    <dd class="col-sm-8">{{ $comprobante->Emisor_CorreoElectronico ?? 'N/A' }}</dd>
                 </dl>
             </div>
         </div>
@@ -74,13 +82,15 @@
             <div class="card-body">
                 <dl class="row mb-0">
                     <dt class="col-sm-4">Nombre</dt>
-                    <dd class="col-sm-8">{{ $comprobante->receptor_nombre ?? 'N/A' }}</dd>
+                    <dd class="col-sm-8">{{ $comprobante->Receptor_Nombre ?? 'N/A' }}</dd>
 
                     <dt class="col-sm-4">Identificación</dt>
-                    <dd class="col-sm-8"><code>{{ $comprobante->receptor_numero_id ?? 'N/A' }}</code></dd>
+                    <dd class="col-sm-8">
+                        <code>{{ $comprobante->Receptor_TipoIdentificacion ?? '' }}{{ $comprobante->Receptor_NumeroIdentificacion ? '-' . $comprobante->Receptor_NumeroIdentificacion : 'N/A' }}</code>
+                    </dd>
 
                     <dt class="col-sm-4">Email</dt>
-                    <dd class="col-sm-8">{{ $comprobante->receptor_email ?? 'N/A' }}</dd>
+                    <dd class="col-sm-8">{{ $comprobante->Receptor_CorreoElectronico ?? 'N/A' }}</dd>
                 </dl>
             </div>
         </div>
@@ -99,26 +109,35 @@
                                 <th>#</th>
                                 <th>Código</th>
                                 <th>Detalle</th>
+                                <th>Unidad</th>
                                 <th class="text-end">Cantidad</th>
                                 <th class="text-end">Precio Unit.</th>
+                                <th class="text-end">Subtotal</th>
                                 <th class="text-end">Impuesto</th>
-                                <th class="text-end">Total</th>
+                                <th class="text-end">Total Línea</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @forelse($comprobante->lineas ?? [] as $index => $linea)
+                            @forelse($comprobante->lineas ?? [] as $linea)
                             <tr>
-                                <td>{{ $index + 1 }}</td>
-                                <td><code>{{ $linea->codigo ?? 'N/A' }}</code></td>
-                                <td>{{ $linea->detalle }}</td>
-                                <td class="text-end">{{ number_format($linea->cantidad, 2) }}</td>
-                                <td class="text-end">₡{{ number_format($linea->precio_unitario, 2) }}</td>
-                                <td class="text-end">₡{{ number_format($linea->impuesto ?? 0, 2) }}</td>
-                                <td class="text-end">₡{{ number_format($linea->total, 2) }}</td>
+                                <td>{{ $linea->NumeroLinea }}</td>
+                                <td><code>{{ $linea->Codigo ?? 'N/A' }}</code></td>
+                                <td>{{ $linea->Detalle }}</td>
+                                <td>{{ $linea->UnidadMedida ?? '—' }}</td>
+                                <td class="text-end">{{ number_format((float)$linea->Cantidad, 2) }}</td>
+                                <td class="text-end">₡{{ number_format((float)$linea->PrecioUnitario, 2) }}</td>
+                                <td class="text-end">₡{{ number_format((float)$linea->SubTotal, 2) }}</td>
+                                <td class="text-end">
+                                    ₡{{ number_format((float)($linea->Impuesto_Monto ?? 0), 2) }}
+                                    @if($linea->Impuesto_Tarifa)
+                                        <span class="text-muted small">({{ $linea->Impuesto_Tarifa }}%)</span>
+                                    @endif
+                                </td>
+                                <td class="text-end fw-semibold">₡{{ number_format((float)$linea->MontoTotalLinea, 2) }}</td>
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="7" class="text-center text-muted py-3">Sin líneas de detalle.</td>
+                                <td colspan="9" class="text-center text-muted py-3">Sin líneas de detalle.</td>
                             </tr>
                             @endforelse
                         </tbody>
@@ -138,20 +157,24 @@
                     <div class="col-md-4">
                         <table class="table table-sm mb-0">
                             <tr>
-                                <td class="fw-semibold">Subtotal:</td>
-                                <td class="text-end">₡{{ number_format($comprobante->total_venta ?? 0, 2) }}</td>
+                                <td class="fw-semibold">Total Venta:</td>
+                                <td class="text-end">₡{{ number_format((float)($comprobante->TotalVenta ?? 0), 2) }}</td>
                             </tr>
                             <tr>
                                 <td class="fw-semibold">Descuento:</td>
-                                <td class="text-end">₡{{ number_format($comprobante->total_descuento ?? 0, 2) }}</td>
+                                <td class="text-end">₡{{ number_format((float)($comprobante->TotalDescuentos ?? 0), 2) }}</td>
+                            </tr>
+                            <tr>
+                                <td class="fw-semibold">Venta Neta:</td>
+                                <td class="text-end">₡{{ number_format((float)($comprobante->TotalVentaNeta ?? 0), 2) }}</td>
                             </tr>
                             <tr>
                                 <td class="fw-semibold">Impuesto:</td>
-                                <td class="text-end">₡{{ number_format($comprobante->total_impuesto ?? 0, 2) }}</td>
+                                <td class="text-end">₡{{ number_format((float)($comprobante->TotalImpuesto ?? 0), 2) }}</td>
                             </tr>
                             <tr class="table-light">
-                                <td class="fw-bold fs-5">Total:</td>
-                                <td class="text-end fw-bold fs-5">₡{{ number_format($comprobante->total_comprobante ?? 0, 2) }}</td>
+                                <td class="fw-bold fs-5">Total Comprobante:</td>
+                                <td class="text-end fw-bold fs-5">₡{{ number_format((float)($comprobante->TotalComprobante ?? 0), 2) }}</td>
                             </tr>
                         </table>
                     </div>
@@ -161,11 +184,33 @@
     </div>
 </div>
 
-@if($comprobante->xml_path)
-<div class="mt-4">
-    <a href="{{ route('comprobantes.download-xml', $comprobante) }}" class="btn btn-outline-primary">
-        <i class="fas fa-download me-1"></i>Descargar XML
+<div class="mt-4 d-flex flex-wrap gap-2">
+    @if($comprobante->estado == \App\Models\Emision::ESTADO_PENDIENTE)
+        <form action="{{ route('comprobantes.procesar-envio', $comprobante->id_emision) }}" method="POST" class="d-inline">
+            @csrf
+            <button type="submit" class="btn btn-warning">
+                <i class="fas fa-paper-plane me-1"></i>Enviar a Hacienda
+            </button>
+        </form>
+    @endif
+
+    @if($comprobante->estado == \App\Models\Emision::ESTADO_ENVIADO)
+        <form action="{{ route('comprobantes.consultar-estado', $comprobante->id_emision) }}" method="POST" class="d-inline">
+            @csrf
+            <button type="submit" class="btn btn-info text-white">
+                <i class="fas fa-sync-alt me-1"></i>Consultar Estado en Hacienda
+            </button>
+        </form>
+    @endif
+
+    @if($comprobante->clave)
+    <a href="{{ route('comprobantes.xml', $comprobante->clave) }}" class="btn btn-outline-primary" target="_blank">
+        <i class="fas fa-code me-1"></i>Ver XML
+    </a>
+    @endif
+
+    <a href="{{ route('comprobantes.index') }}" class="btn btn-secondary">
+        <i class="fas fa-arrow-left me-1"></i>Volver a la lista
     </a>
 </div>
-@endif
 @endsection

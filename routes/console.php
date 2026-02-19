@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Jobs\ProcessColaJob;
 use Illuminate\Support\Facades\Schedule;
 
-Schedule::job(new ProcessColaJob())->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('fe:procesar-cola --timeout=55')->everyMinute()->withoutOverlapping();
+Schedule::command('fe:consultar-estados')->everyMinute()->withoutOverlapping();

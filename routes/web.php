@@ -17,6 +17,9 @@ use App\Http\Controllers\Admin\TenantController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\LogController;
+use App\Http\Controllers\Admin\ApiKeyAdminController;
+use App\Http\Controllers\Admin\ApiUsageLogController;
+use App\Http\Controllers\Api\OpenApiController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -37,6 +40,9 @@ Route::middleware('guest')->group(function () {
 
 Route::post('/logout', [LoginController::class, 'logout'])->name('logout')->middleware('auth');
 
+// Public XML access (clave serves as auth — 50-digit unique key)
+Route::get('/comprobantes/{clave}/xml', [ComprobanteController::class, 'xml'])->name('comprobantes.xml');
+
 // User routes
 Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('user.dashboard');
@@ -45,7 +51,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/empresas/{id}/verificar-credenciales', [EmpresaController::class, 'verificarCredenciales'])->name('empresas.verificar-credenciales');
     Route::resource('empresas', EmpresaController::class);
     Route::resource('comprobantes', ComprobanteController::class)->only(['index', 'show', 'create', 'store']);
-    Route::get('/comprobantes/{clave}/xml', [ComprobanteController::class, 'xml'])->name('comprobantes.xml');
+    Route::post('/comprobantes/{id}/procesar-envio', [ComprobanteController::class, 'procesarEnvio'])->name('comprobantes.procesar-envio');
+    Route::post('/comprobantes/{id}/consultar-estado', [ComprobanteController::class, 'consultarEstado'])->name('comprobantes.consultar-estado');
+    Route::post('/comprobantes/buscar-cabys', [ComprobanteController::class, 'buscarCabys'])->name('comprobantes.buscar-cabys');
     Route::resource('recepciones', RecepcionController::class)->only(['index', 'show', 'create', 'store']);
 
     Route::resource('api-keys', ApiKeyController::class)->except(['show', 'edit', 'update']);
@@ -55,6 +63,10 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
 });
 
+// API Documentation (public)
+Route::get('/api/docs', [OpenApiController::class, 'docs'])->name('api.docs');
+Route::get('/api/openapi.json', [OpenApiController::class, 'json'])->name('api.openapi');
+
 // Admin routes
 Route::middleware(['auth', 'role:super_admin|admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [AdminDashboardController::class, 'index'])->name('dashboard');
@@ -62,4 +74,18 @@ Route::middleware(['auth', 'role:super_admin|admin'])->prefix('admin')->name('ad
     Route::resource('planes', PlanController::class);
     Route::resource('usuarios', UserController::class);
     Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
+
+    // API Keys management
+    Route::get('/api-keys', [ApiKeyAdminController::class, 'index'])->name('api-keys.index');
+    Route::get('/api-keys/create', [ApiKeyAdminController::class, 'create'])->name('api-keys.create');
+    Route::post('/api-keys', [ApiKeyAdminController::class, 'store'])->name('api-keys.store');
+    Route::get('/api-keys/{id}', [ApiKeyAdminController::class, 'show'])->name('api-keys.show');
+    Route::patch('/api-keys/{id}/toggle', [ApiKeyAdminController::class, 'toggleStatus'])->name('api-keys.toggle');
+    Route::delete('/api-keys/{id}', [ApiKeyAdminController::class, 'destroy'])->name('api-keys.destroy');
+
+    // API Usage Logs
+    Route::get('/api-logs', [ApiUsageLogController::class, 'index'])->name('api-logs.index');
+
+    // API Documentation (admin view)
+    Route::get('/api-docs', fn () => view('admin.api-docs'))->name('api-docs');
 });

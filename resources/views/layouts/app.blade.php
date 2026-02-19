@@ -62,6 +62,12 @@
                             <li><a class="dropdown-item" href="{{ url('/admin/tenants') }}"><i class="fas fa-database me-2"></i>Tenants</a></li>
                             <li><a class="dropdown-item" href="{{ url('/admin/planes') }}"><i class="fas fa-list me-2"></i>Planes</a></li>
                             <li><a class="dropdown-item" href="{{ url('/admin/usuarios') }}"><i class="fas fa-users me-2"></i>Usuarios</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url('/admin/api-keys') }}"><i class="fas fa-key me-2"></i>API Keys</a></li>
+                            <li><a class="dropdown-item" href="{{ url('/admin/api-logs') }}"><i class="fas fa-chart-bar me-2"></i>API Logs</a></li>
+                            <li><a class="dropdown-item" href="{{ url('/admin/api-docs') }}"><i class="fas fa-book me-2"></i>API Docs</a></li>
+                            <li><a class="dropdown-item" href="{{ url('/api/docs') }}" target="_blank"><i class="fas fa-external-link-alt me-2"></i>Swagger UI</a></li>
+                            <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{{ url('/admin/logs') }}"><i class="fas fa-history me-2"></i>Logs</a></li>
                         </ul>
                     </li>
@@ -109,6 +115,24 @@
             </div>
             <div class="col-md-9 col-lg-10">
                 <main class="p-4">
+                    @if(session('success'))
+                        <div class="alert alert-success alert-dismissible fade show" role="alert">
+                            <i class="fas fa-check-circle me-2"></i>{{ session('success') }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    @endif
+                    @if(session('error'))
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            <i class="fas fa-exclamation-circle me-2"></i>{{ session('error') }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    @endif
+                    @if(session('info'))
+                        <div class="alert alert-info alert-dismissible fade show" role="alert">
+                            <i class="fas fa-info-circle me-2"></i>{{ session('info') }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    @endif
                     @yield('content')
                 </main>
             </div>

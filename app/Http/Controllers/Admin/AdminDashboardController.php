@@ -3,6 +3,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\ApiKey;
+use App\Models\ApiUsageLog;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\Emision;
@@ -24,11 +26,18 @@ class AdminDashboardController extends Controller
             'emisiones_rechazadas' => Emision::where('estado', 4)->count(),
             'cola_pendiente' => Cola::where('accion', '<', 3)->count(),
             'plans' => Plan::where('is_active', true)->count(),
+            'api_keys_active' => ApiKey::where('is_active', true)->count(),
+            'api_requests_today' => ApiUsageLog::whereDate('created_at', today())->count(),
+            'api_errors_today' => ApiUsageLog::whereDate('created_at', today())->where('status_code', '>=', 400)->count(),
         ];
         
         $ultimostenants = Tenant::latest()->limit(5)->get();
         $ultimasEmisiones = Emision::orderByDesc('id_emision')->limit(10)->get();
+        $recentApiLogs = ApiUsageLog::with('apiKey')
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get();
         
-        return view('admin.dashboard', compact('stats', 'ultimostenants', 'ultimasEmisiones'));
+        return view('admin.dashboard', compact('stats', 'ultimostenants', 'ultimasEmisiones', 'recentApiLogs'));
     }
 }

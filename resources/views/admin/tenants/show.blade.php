@@ -145,7 +145,7 @@
                         <tbody>
                             @forelse($tenant->empresas as $empresa)
                             <tr>
-                                <td>{{ $empresa->nombre }}</td>
+                                <td>{{ $empresa->Nombre }}</td>
                                 <td>{{ $empresa->cedula }}</td>
                                 <td>
                                     @if($empresa->is_active ?? true)

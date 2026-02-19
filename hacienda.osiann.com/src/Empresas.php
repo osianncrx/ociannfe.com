@@ -164,8 +164,7 @@ class Empresas
         if ($result->num_rows > 0) {
             $return = [];
             while ($data = $result->fetch_assoc()) {
-                if ($id != '') {
-                    // Decrypt the encrypted entries
+                if ($id != '' && $cryptoKey) {
                     foreach (['usuario', 'contra'] as $key) {
                         if ($data[$key]) {
                             $data[$key] = Crypto::decrypt($data[$key], $cryptoKey);
@@ -197,7 +196,7 @@ class Empresas
         if ($result->num_rows > 0) {
             $r = $result->fetch_assoc();
             $cert = $r['llave_criptografica'];
-            $pin = Crypto::decrypt($r['pin_llave'], $cryptoKey);
+            $pin = $cryptoKey ? Crypto::decrypt($r['pin_llave'], $cryptoKey) : $r['pin_llave'];
             return ['llave' => $cert, 'pin' => $pin];
         }
         return false;

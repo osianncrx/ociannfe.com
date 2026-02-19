@@ -59,19 +59,102 @@ class FacturacionService
             ->firstOrFail();
 
         $consecutivo = $this->generarConsecutivo($idEmpresa, $comprobanteData);
-        $comprobanteData['NumeroConsecutivo'] = $consecutivo;
+        $fechaEmision = $comprobanteData['FechaEmision']
+            ?? now()->setTimezone('America/Costa_Rica')->format('c');
 
-        if (empty($comprobanteData['FechaEmision'])) {
-            $comprobanteData['FechaEmision'] = now()->setTimezone('America/Costa_Rica')->format('c');
+        $lineas = $comprobanteData['Lineas'] ?? [];
+        $xmlLineas = [];
+        $totalGravado = 0;
+        $totalExento = 0;
+        $totalImpuesto = 0;
+
+        foreach ($lineas as $linea) {
+            $montoTotal = (float) ($linea['MontoTotal'] ?? 0);
+            $impMonto = (float) ($linea['Impuesto']['Monto'] ?? 0);
+
+            if ($impMonto > 0) {
+                $totalGravado += $montoTotal;
+            } else {
+                $totalExento += $montoTotal;
+            }
+            $totalImpuesto += $impMonto;
+
+            $xmlLinea = [
+                'NumeroLinea'    => $linea['NumeroLinea'],
+                'CodigoCABYS'   => $linea['CodigoCABYS'] ?? $linea['Codigo'] ?? '',
+                'Cantidad'       => $linea['Cantidad'],
+                'UnidadMedida'   => $linea['UnidadMedida'] ?? 'Unid',
+                'Detalle'        => mb_substr($linea['Detalle'] ?? '', 0, 200),
+                'PrecioUnitario' => $linea['PrecioUnitario'],
+                'MontoTotal'     => $montoTotal,
+                'SubTotal'       => $linea['SubTotal'] ?? $montoTotal,
+            ];
+
+            if ($impMonto > 0) {
+                $xmlLinea['Impuesto'] = [
+                    'Codigo'       => $linea['Impuesto']['Codigo'] ?? '01',
+                    'CodigoTarifa' => $linea['Impuesto']['CodigoTarifa'] ?? '08',
+                    'Tarifa'       => $linea['Impuesto']['Tarifa'] ?? 13,
+                    'Monto'        => $impMonto,
+                ];
+                $xmlLinea['ImpuestoNeto'] = $impMonto;
+            }
+
+            $xmlLinea['MontoTotalLinea'] = $linea['MontoTotalLinea'] ?? ($montoTotal + $impMonto);
+            $xmlLineas[] = $xmlLinea;
         }
 
-        $comprobanteData['Emisor'] = $this->buildEmisor($empresa);
+        $totalVenta = $totalGravado + $totalExento;
+
+        $haciendaData = [
+            'NumeroConsecutivo' => $consecutivo,
+            'FechaEmision'      => $fechaEmision,
+            'Emisor'            => $this->buildEmisor($empresa),
+            'Receptor'          => $comprobanteData['Receptor'] ?? [],
+            'CondicionVenta'    => $comprobanteData['CondicionVenta'] ?? '01',
+            'MedioPago'         => $comprobanteData['MediosPago'] ?? ['01'],
+            'DetalleServicio'   => [
+                'LineaDetalle' => $xmlLineas,
+            ],
+            'ResumenFactura'    => [
+                'CodigoTipoMoneda' => [
+                    'CodigoMoneda' => $comprobanteData['CodigoTipoMoneda']['CodigoMoneda'] ?? 'CRC',
+                    'TipoCambio'   => $comprobanteData['CodigoTipoMoneda']['TipoCambio'] ?? '1',
+                ],
+                'TotalServGravados'      => 0,
+                'TotalServExentos'       => 0,
+                'TotalMercanciasGravadas'=> $totalGravado,
+                'TotalMercanciasExentas' => $totalExento,
+                'TotalGravado'           => $totalGravado,
+                'TotalExento'            => $totalExento,
+                'TotalVenta'             => $totalVenta,
+                'TotalDescuentos'        => 0,
+                'TotalVentaNeta'         => $totalVenta,
+                'TotalImpuesto'          => $totalImpuesto,
+                'TotalComprobante'       => $totalVenta + $totalImpuesto,
+            ],
+        ];
+
+        if (!empty($empresa->CodigoActividad)) {
+            $haciendaData = array_merge(
+                ['CodigoActividad' => $empresa->CodigoActividad],
+                $haciendaData
+            );
+        }
+
+        $proveedor = config('facturacion.proveedor_sistemas', '');
+        if ($proveedor) {
+            $haciendaData['ProveedorSistemas'] = $proveedor;
+        }
 
         try {
             $facturador = $this->getFacturador();
-            $clave = $facturador->enviarComprobante($comprobanteData, $idEmpresa);
+            $facturador->setClientId($empresa->id_cliente);
+            $clave = $facturador->enviarComprobante($haciendaData, $idEmpresa);
 
             if ($clave) {
+                $comprobanteData['Emisor'] = $haciendaData['Emisor'];
+                $comprobanteData['FechaEmision'] = $fechaEmision;
                 $this->guardarEmisionLocal($comprobanteData, $clave, $idEmpresa, $tenantId);
 
                 return [
@@ -99,6 +182,7 @@ class FacturacionService
     {
         try {
             $facturador = $this->getFacturador();
+            $this->syncClientId($facturador, $idEmpresa);
             return $facturador->consultarEstado($clave, $tipo, $idEmpresa);
         } catch (Exception $e) {
             Log::error("Error al consultar estado de {$clave}: " . $e->getMessage());
@@ -115,6 +199,7 @@ class FacturacionService
     {
         try {
             $facturador = $this->getFacturador();
+            $this->syncClientId($facturador, $idEmpresa);
             return $facturador->cogerXml($clave, $lugar, $tipo, $idEmpresa);
         } catch (Exception $e) {
             Log::error("Error al obtener XML de {$clave}: " . $e->getMessage());
@@ -152,6 +237,14 @@ class FacturacionService
         } catch (Exception $e) {
             Log::error('Error al guardar empresa: ' . $e->getMessage());
             throw $e;
+        }
+    }
+
+    private function syncClientId(FacturadorElectronico $facturador, int $idEmpresa): void
+    {
+        $empresa = Empresa::find($idEmpresa);
+        if ($empresa) {
+            $facturador->setClientId($empresa->id_cliente);
         }
     }
 
@@ -202,36 +295,79 @@ class FacturacionService
     private function guardarEmisionLocal(array $data, string $clave, int $idEmpresa, int $tenantId): void
     {
         $emision = Emision::where('clave', $clave)->first();
-
-        if ($emision) {
-            $emision->update(['tenant_id' => $tenantId]);
+        if (!$emision) {
+            return;
         }
 
-        if (isset($data['DetalleServicio']['LineaDetalle'])) {
-            foreach ($data['DetalleServicio']['LineaDetalle'] as $linea) {
-                if ($emision) {
-                    EmisionLinea::updateOrCreate(
-                        [
-                            'id_emision' => $emision->id_emision,
-                            'NumeroLinea' => $linea['NumeroLinea'] ?? 0,
-                        ],
-                        [
-                            'Codigo' => $linea['CodigoCABYS'] ?? $linea['Codigo'] ?? '',
-                            'Cantidad' => $linea['Cantidad'] ?? 0,
-                            'UnidadMedida' => $linea['UnidadMedida'] ?? 'Unid',
-                            'Detalle' => $linea['Detalle'] ?? '',
-                            'PrecioUnitario' => $linea['PrecioUnitario'] ?? 0,
-                            'MontoTotal' => $linea['MontoTotal'] ?? 0,
-                            'SubTotal' => $linea['SubTotal'] ?? 0,
-                            'MontoTotalLinea' => $linea['MontoTotalLinea'] ?? 0,
-                            'Impuesto_Codigo' => $linea['Impuesto']['Codigo'] ?? null,
-                            'Impuesto_CodigoTarifa' => $linea['Impuesto']['CodigoTarifaIVA'] ?? $linea['Impuesto']['CodigoTarifa'] ?? null,
-                            'Impuesto_Tarifa' => $linea['Impuesto']['Tarifa'] ?? 0,
-                            'Impuesto_Monto' => $linea['Impuesto']['Monto'] ?? 0,
-                        ]
-                    );
-                }
+        $emisor = $data['Emisor'] ?? [];
+        $receptor = $data['Receptor'] ?? [];
+        $lineas = $data['Lineas'] ?? [];
+
+        $totalVenta = 0;
+        $totalImpuesto = 0;
+        $totalGravado = 0;
+        $totalExento = 0;
+
+        foreach ($lineas as $linea) {
+            $subtotal = ($linea['MontoTotal'] ?? 0);
+            $impMonto = $linea['Impuesto']['Monto'] ?? 0;
+            $totalVenta += $subtotal;
+            $totalImpuesto += $impMonto;
+            if ($impMonto > 0) {
+                $totalGravado += $subtotal;
+            } else {
+                $totalExento += $subtotal;
             }
+        }
+
+        $emision->update([
+            'tenant_id'                      => $tenantId,
+            'FechaEmision'                   => $data['FechaEmision'] ?? now()->setTimezone('America/Costa_Rica'),
+            'CodigoActividad'                => $emisor['CodigoActividad'] ?? $data['CodigoActividad'] ?? null,
+            'Emisor_Nombre'                  => $emisor['Nombre'] ?? null,
+            'Emisor_TipoIdentificacion'      => $emisor['Identificacion']['Tipo'] ?? null,
+            'Emisor_NumeroIdentificacion'    => $emisor['Identificacion']['Numero'] ?? null,
+            'Emisor_Provincia'               => $emisor['Ubicacion']['Provincia'] ?? null,
+            'Emisor_Canton'                  => $emisor['Ubicacion']['Canton'] ?? null,
+            'Emisor_Distrito'                => $emisor['Ubicacion']['Distrito'] ?? null,
+            'Emisor_OtrasSenas'              => $emisor['Ubicacion']['OtrasSenas'] ?? null,
+            'Emisor_CorreoElectronico'       => $emisor['CorreoElectronico'] ?? null,
+            'Receptor_Nombre'                => $receptor['Nombre'] ?? null,
+            'Receptor_TipoIdentificacion'    => $receptor['Identificacion']['Tipo'] ?? null,
+            'Receptor_NumeroIdentificacion'  => $receptor['Identificacion']['Numero'] ?? null,
+            'Receptor_CorreoElectronico'     => $receptor['CorreoElectronico'] ?? null,
+            'CondicionVenta'                 => $data['CondicionVenta'] ?? null,
+            'MedioPago'                      => is_array($data['MediosPago'] ?? null) ? ($data['MediosPago'][0] ?? null) : ($data['MediosPago'] ?? null),
+            'TotalGravado'                   => $totalGravado,
+            'TotalExento'                    => $totalExento,
+            'TotalVenta'                     => $totalVenta,
+            'TotalDescuentos'                => 0,
+            'TotalVentaNeta'                 => $totalVenta,
+            'TotalImpuesto'                  => $totalImpuesto,
+            'TotalComprobante'               => $totalVenta + $totalImpuesto,
+        ]);
+
+        foreach ($lineas as $linea) {
+            EmisionLinea::updateOrCreate(
+                [
+                    'id_emision'  => $emision->id_emision,
+                    'NumeroLinea' => $linea['NumeroLinea'] ?? 0,
+                ],
+                [
+                    'Codigo'                      => $linea['CodigoCABYS'] ?? $linea['Codigo'] ?? '',
+                    'Cantidad'                    => $linea['Cantidad'] ?? 0,
+                    'UnidadMedida'                => $linea['UnidadMedida'] ?? 'Unid',
+                    'Detalle'                     => $linea['Detalle'] ?? '',
+                    'PrecioUnitario'              => $linea['PrecioUnitario'] ?? 0,
+                    'MontoTotal'                  => $linea['MontoTotal'] ?? 0,
+                    'SubTotal'                    => $linea['SubTotal'] ?? 0,
+                    'MontoTotalLinea'             => $linea['MontoTotalLinea'] ?? 0,
+                    'Impuesto_Codigo'             => $linea['Impuesto']['Codigo'] ?? null,
+                    'Impuesto_CodigoTarifa'       => $linea['Impuesto']['CodigoTarifaIVA'] ?? $linea['Impuesto']['CodigoTarifa'] ?? null,
+                    'Impuesto_Tarifa'             => $linea['Impuesto']['Tarifa'] ?? 0,
+                    'Impuesto_Monto'              => $linea['Impuesto']['Monto'] ?? 0,
+                ]
+            );
         }
     }
 

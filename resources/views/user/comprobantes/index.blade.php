@@ -26,10 +26,10 @@
                 </div>
                 <div class="col-md-2">
                     <label for="empresa_id" class="form-label">Empresa</label>
-                    <select class="form-select form-select-sm" id="empresa_id" name="empresa_id">
+                    <select class="form-select form-select-sm" id="empresa" name="empresa">
                         <option value="">Todas</option>
                         @foreach($empresas ?? [] as $empresa)
-                            <option value="{{ $empresa->id }}" {{ request('empresa_id') == $empresa->id ? 'selected' : '' }}>{{ $empresa->nombre }}</option>
+                            <option value="{{ $empresa->id_empresa }}" {{ request('empresa') == $empresa->id_empresa ? 'selected' : '' }}>{{ $empresa->Nombre }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -74,13 +74,13 @@
                     @forelse($comprobantes as $comprobante)
                     <tr>
                         <td><code title="{{ $comprobante->clave }}">{{ Str::limit($comprobante->clave, 20) }}</code></td>
-                        <td><code>{{ $comprobante->consecutivo }}</code></td>
-                        <td>{{ $comprobante->receptor_nombre ?? 'N/A' }}</td>
-                        <td class="text-end">₡{{ number_format($comprobante->total_comprobante, 2) }}</td>
+                        <td><code>{{ $comprobante->NumeroConsecutivo }}</code></td>
+                        <td>{{ $comprobante->Receptor_Nombre ?? 'N/A' }}</td>
+                        <td class="text-end">₡{{ number_format((float)$comprobante->TotalComprobante, 2) }}</td>
                         <td><span class="badge bg-{{ $comprobante->estado_badge }}">{{ $comprobante->estado_texto }}</span></td>
-                        <td>{{ $comprobante->created_at->format('d/m/Y H:i') }}</td>
+                        <td>{{ $comprobante->FechaEmision ? $comprobante->FechaEmision->format('d/m/Y H:i') : ($comprobante->FechaCreacion ?? '—') }}</td>
                         <td class="text-end">
-                            <a href="{{ route('comprobantes.show', $comprobante) }}" class="btn btn-sm btn-outline-info" title="Ver">
+                            <a href="{{ route('comprobantes.show', $comprobante->id_emision) }}" class="btn btn-sm btn-outline-info" title="Ver">
                                 <i class="fas fa-eye"></i>
                             </a>
                         </td>

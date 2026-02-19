@@ -254,10 +254,11 @@ class Token
         $result = $this->db->query($sql);
         if ($result->num_rows > 0) {
             $data = $result->fetch_assoc();
-            // Decrypt the encrypted entries
-            foreach (['usuario_mh', 'contra_mh'] as $key) {
-                if ($data[$key]) {
-                    $data[$key] = Crypto::decrypt($data[$key], $this->cryptoKey);
+            if ($this->cryptoKey) {
+                foreach (['usuario_mh', 'contra_mh'] as $key) {
+                    if ($data[$key]) {
+                        $data[$key] = Crypto::decrypt($data[$key], $this->cryptoKey);
+                    }
                 }
             }
             return $data;
