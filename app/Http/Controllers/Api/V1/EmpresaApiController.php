@@ -8,6 +8,8 @@ use App\Models\Empresa;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class EmpresaApiController extends Controller
 {
@@ -31,12 +33,18 @@ class EmpresaApiController extends Controller
             'pin_llave' => 'required|string',
             'llave_criptografica' => 'required',
             'sucursal' => 'nullable|string|size:3|regex:/^[0-9]{3}$/',
+            'Provincia' => 'nullable|string|regex:/^[1-7]$/',
+            'Canton' => 'nullable|string|regex:/^[0-9]{2}$/',
+            'Distrito' => 'nullable|string|regex:/^[0-9]{2}$/',
         ]);
 
         $tenantId = $this->getTenantId($request);
         $data = $request->all();
         $data['tenant_id'] = $tenantId;
         $data['id_cliente'] = (string) $tenantId;
+        if (empty($data['CodigoActividad'] ?? null)) {
+            $data['CodigoActividad'] = $this->fetchCodigoActividadFromHacienda((string) ($data['Numero'] ?? '')) ?? null;
+        }
 
         if ($request->filled('sucursal')) {
             $exists = Empresa::where('tenant_id', $tenantId)
@@ -81,6 +89,12 @@ class EmpresaApiController extends Controller
         $empresa = Empresa::where('tenant_id', $this->getTenantId($request))
             ->where('id_empresa', $id)->firstOrFail();
 
+        $request->validate([
+            'Provincia' => 'nullable|string|regex:/^[1-7]$/',
+            'Canton' => 'nullable|string|regex:/^[0-9]{2}$/',
+            'Distrito' => 'nullable|string|regex:/^[0-9]{2}$/',
+        ]);
+
         $data = $request->only([
             'Nombre', 'CorreoElectronico', 'Provincia', 'Canton', 'Distrito',
             'OtrasSenas', 'CodigoActividad', 'NombreComercial',
@@ -108,5 +122,46 @@ class EmpresaApiController extends Controller
             return app('current_tenant')->id;
         }
         return $request->user()->tenant_id;
+    }
+
+    private function fetchCodigoActividadFromHacienda(string $identificacion): ?string
+    {
+        $identificacion = preg_replace('/\D+/', '', trim($identificacion)) ?? '';
+        if ($identificacion === '') {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(10)->get('https://api.hacienda.go.cr/fe/ae', [
+                'identificacion' => $identificacion,
+            ]);
+
+            if (!$response->successful()) {
+                return null;
+            }
+
+            $actividades = collect($response->json('actividades', []))
+                ->where('estado', 'A')
+                ->values();
+
+            if ($actividades->isEmpty()) {
+                return null;
+            }
+
+            foreach ($actividades as $actividad) {
+                foreach (($actividad['ciiu3'] ?? []) as $ciiu) {
+                    $code = preg_replace('/\D+/', '', (string) ($ciiu['codigo'] ?? '')) ?? '';
+                    if (strlen($code) === 6) {
+                        return $code;
+                    }
+                }
+            }
+
+            $code = preg_replace('/\D+/', '', (string) ($actividades[0]['codigo'] ?? '')) ?? '';
+            return $code !== '' ? str_pad(substr($code, 0, 6), 6, '0', STR_PAD_RIGHT) : null;
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo autocompletar CodigoActividad desde Hacienda (API): ' . $e->getMessage());
+            return null;
+        }
     }
 }

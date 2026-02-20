@@ -44,9 +44,9 @@ class EmpresaController extends Controller
             'pin_llave' => 'required|string|max:512',
             'llave_criptografica' => 'required|file|max:10240',
             'CorreoElectronico' => 'nullable|email|max:255',
-            'Provincia' => 'nullable|string|max:2',
-            'Canton' => 'nullable|string|max:3',
-            'Distrito' => 'nullable|string|max:3',
+            'Provincia' => 'nullable|string|regex:/^[1-7]$/',
+            'Canton' => 'nullable|string|regex:/^[0-9]{2}$/',
+            'Distrito' => 'nullable|string|regex:/^[0-9]{2}$/',
             'OtrasSenas' => 'nullable|string|max:255',
             'CodigoActividad' => 'nullable|string|max:255',
         ]);
@@ -55,6 +55,10 @@ class EmpresaController extends Controller
         $tenantId = auth()->user()->tenant_id;
         $data['tenant_id'] = $tenantId;
         $data['id_cliente'] = (string) $tenantId;
+
+        if (empty($data['CodigoActividad'] ?? null)) {
+            $data['CodigoActividad'] = $this->fetchCodigoActividadFromHacienda((string) ($data['Numero'] ?? '')) ?? null;
+        }
 
         $sucursal = Empresa::autoAssignSucursal(
             $tenantId,
@@ -103,9 +107,9 @@ class EmpresaController extends Controller
         $rules = [
             'Nombre' => 'required|string|max:255',
             'CorreoElectronico' => 'nullable|email|max:255',
-            'Provincia' => 'nullable|string|max:2',
-            'Canton' => 'nullable|string|max:3',
-            'Distrito' => 'nullable|string|max:3',
+            'Provincia' => 'nullable|string|regex:/^[1-7]$/',
+            'Canton' => 'nullable|string|regex:/^[0-9]{2}$/',
+            'Distrito' => 'nullable|string|regex:/^[0-9]{2}$/',
             'OtrasSenas' => 'nullable|string|max:255',
             'CodigoActividad' => 'nullable|string|max:255',
         ];
@@ -348,5 +352,46 @@ class EmpresaController extends Controller
             ->setPaper('letter');
 
         return $pdf->stream('Vista_Previa_' . $empresa->Nombre . '.pdf');
+    }
+
+    private function fetchCodigoActividadFromHacienda(string $identificacion): ?string
+    {
+        $identificacion = preg_replace('/\D+/', '', trim($identificacion)) ?? '';
+        if ($identificacion === '') {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(10)->get('https://api.hacienda.go.cr/fe/ae', [
+                'identificacion' => $identificacion,
+            ]);
+
+            if (!$response->successful()) {
+                return null;
+            }
+
+            $actividades = collect($response->json('actividades', []))
+                ->where('estado', 'A')
+                ->values();
+
+            if ($actividades->isEmpty()) {
+                return null;
+            }
+
+            foreach ($actividades as $actividad) {
+                foreach (($actividad['ciiu3'] ?? []) as $ciiu) {
+                    $code = preg_replace('/\D+/', '', (string) ($ciiu['codigo'] ?? '')) ?? '';
+                    if (strlen($code) === 6) {
+                        return $code;
+                    }
+                }
+            }
+
+            $code = preg_replace('/\D+/', '', (string) ($actividades[0]['codigo'] ?? '')) ?? '';
+            return $code !== '' ? str_pad(substr($code, 0, 6), 6, '0', STR_PAD_RIGHT) : null;
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo autocompletar CodigoActividad desde Hacienda: ' . $e->getMessage());
+            return null;
+        }
     }
 }

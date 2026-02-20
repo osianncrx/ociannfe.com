@@ -64,91 +64,248 @@ class FacturacionService
 
         $lineas = $comprobanteData['Lineas'] ?? [];
         $xmlLineas = [];
-        $totalGravado = 0;
-        $totalExento = 0;
-        $totalImpuesto = 0;
+        $totalVenta = 0.0;
+        $totalGravado = 0.0;
+        $totalExento = 0.0;
+        $totalServGravados = 0.0;
+        $totalServExentos = 0.0;
+        $totalMercanciasGravadas = 0.0;
+        $totalMercanciasExentas = 0.0;
+        $totalDescuentos = 0.0;
+        $totalVentaNeta = 0.0;
+        $totalImpuesto = 0.0;
+        $desgloseImpuestos = [];
 
         foreach ($lineas as $linea) {
-            $montoTotal = (float) ($linea['MontoTotal'] ?? 0);
-            $impMonto = (float) ($linea['Impuesto']['Monto'] ?? 0);
+            $cantidad = $this->truncateDecimal((float) ($linea['Cantidad'] ?? 0), 3);
+            $precioUnitario = $this->truncateMoney((float) ($linea['PrecioUnitario'] ?? 0));
+            $montoTotal = $this->truncateMoney((float) ($linea['MontoTotal'] ?? 0));
+            if ($montoTotal <= 0) {
+                $montoTotal = $this->truncateMoney($cantidad * $precioUnitario);
+            }
+
+            $descuentoMonto = $this->truncateMoney((float) ($linea['Descuento']['MontoDescuento'] ?? 0));
+            $subTotal = $this->truncateMoney((float) ($linea['SubTotal'] ?? 0));
+            if ($subTotal <= 0) {
+                $subTotal = $this->truncateMoney(max(0, $montoTotal - $descuentoMonto));
+            }
+
+            $tarifa = $this->truncateDecimal((float) ($linea['Impuesto']['Tarifa'] ?? 0), 2);
+            $impMonto = $this->truncateMoney((float) ($linea['Impuesto']['Monto'] ?? 0));
+            if ($impMonto <= 0 && $tarifa > 0) {
+                $impMonto = $this->truncateMoney($subTotal * ($tarifa / 100));
+            }
+
+            $montoTotalLinea = $this->truncateMoney((float) ($linea['MontoTotalLinea'] ?? 0));
+            if ($montoTotalLinea <= 0) {
+                $montoTotalLinea = $this->truncateMoney($subTotal + $impMonto);
+            }
+
+            $totalVenta = $this->truncateMoney($totalVenta + $montoTotal);
+            $totalDescuentos = $this->truncateMoney($totalDescuentos + $descuentoMonto);
+            $totalVentaNeta = $this->truncateMoney($totalVentaNeta + $subTotal);
 
             if ($impMonto > 0) {
-                $totalGravado += $montoTotal;
+                $totalGravado = $this->truncateMoney($totalGravado + $montoTotal);
             } else {
-                $totalExento += $montoTotal;
+                $totalExento = $this->truncateMoney($totalExento + $montoTotal);
             }
-            $totalImpuesto += $impMonto;
+            $totalImpuesto = $this->truncateMoney($totalImpuesto + $impMonto);
+
+            $codigoCabys = (string) ($linea['CodigoCABYS'] ?? $linea['Codigo'] ?? '');
+            if (str_contains(strtolower((string) ($linea['Detalle'] ?? '')), 'ociann class')) {
+                $codigoCabys = '8315100000000';
+            }
 
             $xmlLinea = [
                 'NumeroLinea'    => $linea['NumeroLinea'],
-                'CodigoCABYS'   => $linea['CodigoCABYS'] ?? $linea['Codigo'] ?? '',
-                'Cantidad'       => $linea['Cantidad'],
+                'CodigoCABYS'   => $codigoCabys,
+                'Cantidad'       => $cantidad,
                 'UnidadMedida'   => $linea['UnidadMedida'] ?? 'Unid',
                 'Detalle'        => mb_substr($linea['Detalle'] ?? '', 0, 200),
-                'PrecioUnitario' => $linea['PrecioUnitario'],
+                'PrecioUnitario' => $precioUnitario,
                 'MontoTotal'     => $montoTotal,
-                'SubTotal'       => $linea['SubTotal'] ?? $montoTotal,
             ];
 
-            if ($impMonto > 0) {
-                $xmlLinea['Impuesto'] = [
-                    'Codigo'       => $linea['Impuesto']['Codigo'] ?? '01',
-                    'CodigoTarifa' => $linea['Impuesto']['CodigoTarifa'] ?? '08',
-                    'Tarifa'       => $linea['Impuesto']['Tarifa'] ?? 13,
-                    'Monto'        => $impMonto,
+            if ($descuentoMonto > 0) {
+                $codigoDescuento = $this->normalizeCodigoDescuento(
+                    (string) ($linea['Descuento']['CodigoDescuento'] ?? ''),
+                    $descuentoMonto,
+                    $montoTotal
+                );
+
+                $xmlLinea['Descuento'] = [
+                    'MontoDescuento' => $descuentoMonto,
+                    'CodigoDescuento' => $codigoDescuento,
+                    'NaturalezaDescuento' => $linea['Descuento']['NaturalezaDescuento'] ?? null,
                 ];
-                $xmlLinea['ImpuestoNeto'] = $impMonto;
             }
 
-            $xmlLinea['MontoTotalLinea'] = $linea['MontoTotalLinea'] ?? ($montoTotal + $impMonto);
+            // v4.4 expects SubTotal after optional Descuento.
+            $xmlLinea['SubTotal'] = $subTotal;
+
+            // v4.4 sequence expects BaseImponible (or IVACobradoFabrica) before Impuesto.
+            $xmlLinea['BaseImponible'] = !empty($linea['BaseImponible'])
+                ? (float) $linea['BaseImponible']
+                : $subTotal;
+
+            if ($impMonto > 0) {
+                $impuestoAsumidoEmisor = $this->truncateMoney((float) ($linea['ImpuestoAsumidoEmisorFabrica'] ?? 0));
+                $impuestoNeto = $this->truncateMoney(max(0, $impMonto - $impuestoAsumidoEmisor));
+                $codigoImpuesto = (string) ($linea['Impuesto']['Codigo'] ?? '01');
+                $codigoTarifaIva = (string) ($linea['Impuesto']['CodigoTarifaIVA'] ?? $linea['Impuesto']['CodigoTarifa'] ?? '08');
+
+                $impuesto = [
+                    'Codigo'       => $codigoImpuesto,
+                    'CodigoTarifaIVA' => $codigoTarifaIva,
+                    'Tarifa'       => $tarifa > 0 ? $tarifa : 13,
+                    'Monto'        => $impMonto,
+                ];
+                if (!empty($linea['Impuesto']['FactorIVA'])) {
+                    $impuesto['FactorIVA'] = (float) $linea['Impuesto']['FactorIVA'];
+                }
+                if (!empty($linea['Impuesto']['Exoneracion'])) {
+                    $impuesto['Exoneracion'] = $linea['Impuesto']['Exoneracion'];
+                }
+                $xmlLinea['Impuesto'] = $impuesto;
+                $xmlLinea['ImpuestoAsumidoEmisorFabrica'] = $impuestoAsumidoEmisor;
+                $xmlLinea['ImpuestoNeto'] = $impuestoNeto;
+
+                $key = $codigoImpuesto . '|' . $codigoTarifaIva;
+                $desgloseImpuestos[$key] = [
+                    'Codigo' => $codigoImpuesto,
+                    'CodigoTarifaIVA' => $codigoTarifaIva,
+                    'TotalMontoImpuesto' => $this->truncateMoney(
+                        ($desgloseImpuestos[$key]['TotalMontoImpuesto'] ?? 0) + $impuestoNeto
+                    ),
+                ];
+            }
+
+            if (!empty($linea['PartidaArancelaria'])) {
+                $xmlLinea['PartidaArancelaria'] = $linea['PartidaArancelaria'];
+            }
+
+            $xmlLinea['MontoTotalLinea'] = $montoTotalLinea;
             $xmlLineas[] = $xmlLinea;
+
+            $esServicio = strtolower((string) ($linea['UnidadMedida'] ?? '')) === 'sp';
+            if ($impMonto > 0) {
+                if ($esServicio) {
+                    $totalServGravados = $this->truncateMoney($totalServGravados + $montoTotal);
+                } else {
+                    $totalMercanciasGravadas = $this->truncateMoney($totalMercanciasGravadas + $montoTotal);
+                }
+            } else {
+                if ($esServicio) {
+                    $totalServExentos = $this->truncateMoney($totalServExentos + $montoTotal);
+                } else {
+                    $totalMercanciasExentas = $this->truncateMoney($totalMercanciasExentas + $montoTotal);
+                }
+            }
         }
 
-        $totalVenta = $totalGravado + $totalExento;
+        $totalVentaNeta = $this->truncateMoney(max(0, $totalVenta - $totalDescuentos));
 
-        $haciendaData = [
+        $totalOtrosCargos = 0;
+        $otrosCargosData = [];
+        if (!empty($comprobanteData['OtrosCargos'])) {
+            foreach ($comprobanteData['OtrosCargos'] as $cargo) {
+                $totalOtrosCargos += (float) ($cargo['MontoCargo'] ?? 0);
+                $otrosCargosData[] = $cargo;
+            }
+        }
+
+        $haciendaData = [];
+
+        // v4.4 requires ProveedorSistemas first. CodigoActividadEmisor applies to
+        // FE/TE/NC/ND/FEC/FEX but not to REP (TipoDoc 10).
+        $proveedor = config('facturacion.proveedor_sistemas', '');
+        if ($proveedor) {
+            $haciendaData['ProveedorSistemas'] = $proveedor;
+        }
+
+        $tipoDoc = (string) ($comprobanteData['TipoDoc'] ?? '01');
+        $docsConCodigoActividadEmisor = ['01', '02', '03', '04', '08', '09'];
+        if (in_array($tipoDoc, $docsConCodigoActividadEmisor, true)) {
+            $codigoActividad = '';
+
+            try {
+                $codigoActividad = $this->fetchCodigoActividadByIdentificacion((string) $empresa->Numero) ?? '';
+            } catch (Exception $e) {
+                Log::warning('No se pudo consultar CodigoActividad en Hacienda: ' . $e->getMessage());
+            }
+
+            if ($codigoActividad === '' && !empty($empresa->CodigoActividad)) {
+                $codigoActividad = (string) $empresa->CodigoActividad;
+            }
+
+            if ($codigoActividad !== '') {
+                $codigoActividad = $this->normalizeCodigoActividadEmisor($codigoActividad);
+                $haciendaData['CodigoActividadEmisor'] = $codigoActividad;
+
+                if ($empresa->CodigoActividad !== $codigoActividad) {
+                    $empresa->CodigoActividad = $codigoActividad;
+                    $empresa->save();
+                }
+            }
+        }
+
+        $resumenFactura = [
+            'CodigoTipoMoneda' => [
+                'CodigoMoneda' => $comprobanteData['CodigoTipoMoneda']['CodigoMoneda'] ?? 'CRC',
+                'TipoCambio'   => $comprobanteData['CodigoTipoMoneda']['TipoCambio'] ?? '1',
+            ],
+            'TotalServGravados'      => $totalServGravados,
+            'TotalServExentos'       => $totalServExentos,
+            'TotalMercanciasGravadas'=> $totalMercanciasGravadas,
+            'TotalMercanciasExentas' => $totalMercanciasExentas,
+            'TotalGravado'           => $totalGravado,
+            'TotalExento'            => $totalExento,
+            'TotalVenta'             => $totalVenta,
+            'TotalDescuentos'        => $totalDescuentos,
+            'TotalVentaNeta'         => $totalVentaNeta,
+        ];
+
+        if (!empty($desgloseImpuestos)) {
+            // v4.4: TotalDesgloseImpuesto must be emitted before MedioPago/TotalComprobante.
+            $resumenFactura['TotalDesgloseImpuesto'] = array_values($desgloseImpuestos);
+        }
+
+        $resumenFactura += [
+            'TotalImpuesto'          => $totalImpuesto,
+            'TotalOtrosCargos'       => $totalOtrosCargos,
+        ];
+
+        $haciendaData += [
             'NumeroConsecutivo' => $consecutivo,
             'FechaEmision'      => $fechaEmision,
             'Emisor'            => $this->buildEmisor($empresa),
             'Receptor'          => $comprobanteData['Receptor'] ?? [],
             'CondicionVenta'    => $comprobanteData['CondicionVenta'] ?? '01',
-            'MedioPago'         => $comprobanteData['MediosPago'] ?? ['01'],
             'DetalleServicio'   => [
                 'LineaDetalle' => $xmlLineas,
             ],
-            'ResumenFactura'    => [
-                'CodigoTipoMoneda' => [
-                    'CodigoMoneda' => $comprobanteData['CodigoTipoMoneda']['CodigoMoneda'] ?? 'CRC',
-                    'TipoCambio'   => $comprobanteData['CodigoTipoMoneda']['TipoCambio'] ?? '1',
-                ],
-                'TotalServGravados'      => 0,
-                'TotalServExentos'       => 0,
-                'TotalMercanciasGravadas'=> $totalGravado,
-                'TotalMercanciasExentas' => $totalExento,
-                'TotalGravado'           => $totalGravado,
-                'TotalExento'            => $totalExento,
-                'TotalVenta'             => $totalVenta,
-                'TotalDescuentos'        => 0,
-                'TotalVentaNeta'         => $totalVenta,
-                'TotalImpuesto'          => $totalImpuesto,
-                'TotalComprobante'       => $totalVenta + $totalImpuesto,
-            ],
+            'ResumenFactura'    => $resumenFactura,
         ];
 
-        if (!empty($empresa->CodigoActividad)) {
-            $haciendaData = array_merge(
-                ['CodigoActividad' => $empresa->CodigoActividad],
-                $haciendaData
-            );
+        $mediosPago = $comprobanteData['MediosPago'] ?? ['01'];
+        $montoTotalComprobante = $this->truncateMoney($totalVentaNeta + $totalImpuesto + $totalOtrosCargos);
+        $haciendaData['ResumenFactura']['MedioPago'] = $this->buildResumenMediosPago(
+            $mediosPago,
+            $montoTotalComprobante
+        );
+        $haciendaData['ResumenFactura']['TotalComprobante'] = $montoTotalComprobante;
+
+        if (!empty($comprobanteData['PlazoCredito'])) {
+            $haciendaData['PlazoCredito'] = (int) $comprobanteData['PlazoCredito'];
+        }
+
+        if (!empty($otrosCargosData)) {
+            $haciendaData['OtrosCargos'] = $otrosCargosData;
         }
 
         if (!empty($comprobanteData['InformacionReferencia'])) {
             $haciendaData['InformacionReferencia'] = $comprobanteData['InformacionReferencia'];
-        }
-
-        $proveedor = config('facturacion.proveedor_sistemas', '');
-        if ($proveedor) {
-            $haciendaData['ProveedorSistemas'] = $proveedor;
         }
 
         try {
@@ -351,6 +508,187 @@ class FacturacionService
         return $sucursal . $terminal . $tipoDoc . $consecutivoStr;
     }
 
+    private function truncateDecimal(float $value, int $decimals): float
+    {
+        $factor = 10 ** $decimals;
+
+        if ($value >= 0) {
+            return floor(($value * $factor) + 1e-9) / $factor;
+        }
+
+        return ceil(($value * $factor) - 1e-9) / $factor;
+    }
+
+    private function truncateMoney(float $value): float
+    {
+        return $this->truncateDecimal($value, 5);
+    }
+
+    private function buildResumenMediosPago(array|string|null $mediosPago, float $total): array
+    {
+        $entries = is_array($mediosPago) ? $mediosPago : [$mediosPago ?: '01'];
+        $codes = [];
+
+        foreach ($entries as $entry) {
+            if (is_array($entry)) {
+                $code = trim((string) ($entry['TipoMedioPago'] ?? $entry['codigo'] ?? ''));
+            } else {
+                $code = trim((string) $entry);
+            }
+
+            if ($code !== '') {
+                $codes[] = $code;
+            }
+        }
+
+        if ($codes === []) {
+            $codes = ['01'];
+        }
+
+        $result = [];
+        $count = count($codes);
+        $baseAmount = $count > 0 ? $this->truncateMoney($total / $count) : $total;
+        $assigned = 0.0;
+
+        foreach ($codes as $index => $code) {
+            $amount = $index === $count - 1
+                ? $this->truncateMoney($total - $assigned)
+                : $baseAmount;
+
+            $assigned = $this->truncateMoney($assigned + $amount);
+
+            $result[] = [
+                'TipoMedioPago' => $code,
+                'TotalMedioPago' => $amount,
+            ];
+        }
+
+        return $result;
+    }
+
+    private function normalizeCodigoActividadEmisor(string $codigo): string
+    {
+        $digits = preg_replace('/\D+/', '', trim($codigo)) ?? '';
+
+        // v4.4 XSD requires exactly 6 digits for CodigoActividadEmisor.
+        // The Hacienda AE API commonly returns values like "6201.0" -> "62010",
+        // which should be right-padded to "620100" (not left-padded).
+        if ($digits !== '' && strlen($digits) < 6) {
+            $digits = str_pad($digits, 6, '0', STR_PAD_RIGHT);
+        } elseif (strlen($digits) > 6) {
+            $digits = substr($digits, 0, 6);
+        }
+
+        return $digits;
+    }
+
+    private function fetchCodigoActividadByIdentificacion(string $identificacion): ?string
+    {
+        $identificacion = preg_replace('/\D+/', '', trim($identificacion)) ?? '';
+        if ($identificacion === '') {
+            return null;
+        }
+
+        $response = Http::timeout(10)->get('https://api.hacienda.go.cr/fe/ae', [
+            'identificacion' => $identificacion,
+        ]);
+
+        if (!$response->successful()) {
+            return null;
+        }
+
+        $data = $response->json();
+        $actividades = collect($data['actividades'] ?? [])->where('estado', 'A');
+        if ($actividades->isEmpty()) {
+            return null;
+        }
+
+        // Prefer CIIU3 6-digit code when available.
+        foreach ($actividades as $actividad) {
+            foreach (($actividad['ciiu3'] ?? []) as $ciiu) {
+                $ciiuCode = preg_replace('/\D+/', '', (string) ($ciiu['codigo'] ?? '')) ?? '';
+                if (strlen($ciiuCode) === 6) {
+                    return $ciiuCode;
+                }
+            }
+        }
+
+        $codigo = (string) ($actividades->first()['codigo'] ?? '');
+        $codigo = preg_replace('/\D+/', '', $codigo) ?? '';
+        return $codigo !== '' ? $codigo : null;
+    }
+
+    private function normalizeCodigoDescuento(string $codigo, float $montoDescuento, float $montoTotal): string
+    {
+        $codigo = trim($codigo);
+        if ($codigo === '') {
+            return '02';
+        }
+
+        // Codes 01/03 represent regalías/bonificaciones and require 100% discount.
+        if (in_array($codigo, ['01', '03'], true) && $this->truncateMoney($montoDescuento) < $this->truncateMoney($montoTotal)) {
+            return '02';
+        }
+
+        return $codigo;
+    }
+
+    private function normalizeProvincia(?string $value): string
+    {
+        $normalized = strtolower(trim((string) $value));
+        $aliases = [
+            'sj' => '1',
+            'al' => '2',
+            'ca' => '3',
+            'he' => '4',
+            'gu' => '5',
+            'pu' => '6',
+            'li' => '7',
+            'sanjose' => '1',
+            'alajuela' => '2',
+            'cartago' => '3',
+            'heredia' => '4',
+            'guanacaste' => '5',
+            'puntarenas' => '6',
+            'limon' => '7',
+        ];
+
+        if (isset($aliases[$normalized])) {
+            return $aliases[$normalized];
+        }
+
+        $digits = preg_replace('/\D+/', '', $normalized) ?? '';
+        if (!preg_match('/^[1-7]$/', $digits)) {
+            throw new Exception('La provincia del emisor es inválida. Debe ser un dígito del 1 al 7.');
+        }
+
+        return $digits;
+    }
+
+    private function normalizeCanton(?string $value): string
+    {
+        $digits = preg_replace('/\D+/', '', trim((string) $value)) ?? '';
+        $digits = str_pad($digits, 2, '0', STR_PAD_LEFT);
+
+        if (!preg_match('/^[0-9]{2}$/', $digits) || $digits === '00') {
+            throw new Exception('El cantón del emisor es inválido. Debe tener 2 dígitos (01-99).');
+        }
+
+        return $digits;
+    }
+
+    private function normalizeDistrito(?string $value): string
+    {
+        $digits = preg_replace('/\D+/', '', trim((string) $value)) ?? '';
+        $digits = str_pad($digits, 2, '0', STR_PAD_LEFT);
+
+        if (!preg_match('/^[0-9]{2}$/', $digits) || $digits === '00') {
+            throw new Exception('El distrito del emisor es inválido. Debe tener 2 dígitos (01-99).');
+        }
+
+        return $digits;
+    }
+
     private function buildEmisor(Empresa $empresa): array
     {
         $emisor = [
@@ -359,13 +697,25 @@ class FacturacionService
                 'Tipo' => (string) ($empresa->Tipo ?? ''),
                 'Numero' => (string) ($empresa->Numero ?? ''),
             ],
-            'Ubicacion' => [
-                'Provincia' => (string) ($empresa->Provincia ?? '0'),
-                'Canton' => (string) ($empresa->Canton ?? '00'),
-                'Distrito' => (string) ($empresa->Distrito ?? '00'),
-                'OtrasSenas' => (string) ($empresa->OtrasSenas ?? ''),
-            ],
         ];
+
+        if (!empty($empresa->NombreComercial)) {
+            $emisor['NombreComercial'] = (string) $empresa->NombreComercial;
+        }
+
+        $emisor['Ubicacion'] = [
+            'Provincia' => $this->normalizeProvincia((string) $empresa->Provincia),
+            'Canton' => $this->normalizeCanton((string) $empresa->Canton),
+            'Distrito' => $this->normalizeDistrito((string) $empresa->Distrito),
+            'OtrasSenas' => (string) ($empresa->OtrasSenas ?? ''),
+        ];
+
+        if (!empty($empresa->Telefono)) {
+            $emisor['Telefono'] = [
+                'CodigoPais' => '506',
+                'NumTelefono' => (string) $empresa->Telefono,
+            ];
+        }
 
         if (!empty($empresa->CorreoElectronico)) {
             $emisor['CorreoElectronico'] = (string) $empresa->CorreoElectronico;
@@ -376,9 +726,18 @@ class FacturacionService
 
     private function guardarEmisionLocal(array $data, string $clave, int $idEmpresa, int $tenantId): void
     {
-        $emision = Emision::where('clave', $clave)->first();
+        // Some provider flows insert the emission row without tenant_id first.
+        // Bypass tenant global scope to recover that row and attach it to tenant.
+        $emision = Emision::withoutGlobalScopes()
+            ->where('clave', $clave)
+            ->where('id_empresa', $idEmpresa)
+            ->first();
+
         if (!$emision) {
-            return;
+            $emision = new Emision();
+            $emision->clave = $clave;
+            $emision->id_empresa = $idEmpresa;
+            $emision->estado = Emision::ESTADO_PENDIENTE;
         }
 
         $emisor = $data['Emisor'] ?? [];
@@ -389,16 +748,53 @@ class FacturacionService
         $totalImpuesto = 0;
         $totalGravado = 0;
         $totalExento = 0;
+        $totalDescuentos = 0;
+        $totalVentaNeta = 0;
 
         foreach ($lineas as $linea) {
-            $subtotal = ($linea['MontoTotal'] ?? 0);
-            $impMonto = $linea['Impuesto']['Monto'] ?? 0;
-            $totalVenta += $subtotal;
+            $cantidad = (float) ($linea['Cantidad'] ?? 0);
+            $precioUnitario = (float) ($linea['PrecioUnitario'] ?? 0);
+            $montoTotal = (float) ($linea['MontoTotal'] ?? 0);
+            if ($montoTotal <= 0) {
+                $montoTotal = $cantidad * $precioUnitario;
+            }
+
+            $descuento = (float) ($linea['Descuento']['MontoDescuento'] ?? 0);
+            $subTotal = (float) ($linea['SubTotal'] ?? 0);
+            if ($subTotal <= 0) {
+                $subTotal = max(0, $montoTotal - $descuento);
+            }
+
+            $tarifa = (float) ($linea['Impuesto']['Tarifa'] ?? 0);
+            $impMonto = (float) ($linea['Impuesto']['Monto'] ?? 0);
+            if ($impMonto <= 0 && $tarifa > 0) {
+                $impMonto = $subTotal * ($tarifa / 100);
+            }
+
+            $montoTotalLinea = (float) ($linea['MontoTotalLinea'] ?? 0);
+            if ($montoTotalLinea <= 0) {
+                $montoTotalLinea = $subTotal + $impMonto;
+            }
+
+            $totalVenta += $montoTotal;
             $totalImpuesto += $impMonto;
             if ($impMonto > 0) {
-                $totalGravado += $subtotal;
+                $totalGravado += $subTotal;
             } else {
-                $totalExento += $subtotal;
+                $totalExento += $subTotal;
+            }
+            $totalDescuentos += $descuento;
+            $totalVentaNeta += $subTotal;
+        }
+
+        $mediosPago = $data['MediosPago'] ?? null;
+        $medioPago1 = is_array($mediosPago) ? ($mediosPago[0] ?? null) : $mediosPago;
+        $medioPago2 = is_array($mediosPago) && count($mediosPago) > 1 ? $mediosPago[1] : null;
+
+        $totalOtros = 0;
+        if (!empty($data['OtrosCargos'])) {
+            foreach ($data['OtrosCargos'] as $cargo) {
+                $totalOtros += (float) ($cargo['MontoCargo'] ?? 0);
             }
         }
 
@@ -418,36 +814,74 @@ class FacturacionService
             'Receptor_TipoIdentificacion'    => $receptor['Identificacion']['Tipo'] ?? null,
             'Receptor_NumeroIdentificacion'  => $receptor['Identificacion']['Numero'] ?? null,
             'Receptor_CorreoElectronico'     => $receptor['CorreoElectronico'] ?? null,
+            'Receptor_CodigoActividad'       => $receptor['CodigoActividad'] ?? null,
+            'Receptor_NombreComercial'       => $receptor['NombreComercial'] ?? null,
             'CondicionVenta'                 => $data['CondicionVenta'] ?? null,
-            'MedioPago'                      => is_array($data['MediosPago'] ?? null) ? ($data['MediosPago'][0] ?? null) : ($data['MediosPago'] ?? null),
+            'MedioPago'                      => $medioPago1,
+            'MedioPago2'                     => $medioPago2,
+            'PlazoCredito'                   => $data['PlazoCredito'] ?? null,
             'TotalGravado'                   => $totalGravado,
             'TotalExento'                    => $totalExento,
             'TotalVenta'                     => $totalVenta,
-            'TotalDescuentos'                => 0,
-            'TotalVentaNeta'                 => $totalVenta,
+            'TotalDescuentos'                => $totalDescuentos,
+            'TotalVentaNeta'                 => $totalVentaNeta,
             'TotalImpuesto'                  => $totalImpuesto,
-            'TotalComprobante'               => $totalVenta + $totalImpuesto,
+            'TotalOtrosCargos'               => $totalOtros,
+            'TotalComprobante'               => $totalVentaNeta + $totalImpuesto + $totalOtros,
+            'version_fe'                     => '4.4',
         ]);
 
         foreach ($lineas as $linea) {
+            $cantidad = (float) ($linea['Cantidad'] ?? 0);
+            $precioUnitario = (float) ($linea['PrecioUnitario'] ?? 0);
+            $montoTotal = (float) ($linea['MontoTotal'] ?? 0);
+            if ($montoTotal <= 0) {
+                $montoTotal = $cantidad * $precioUnitario;
+            }
+
+            $descuento = (float) ($linea['Descuento']['MontoDescuento'] ?? 0);
+            $subTotal = (float) ($linea['SubTotal'] ?? 0);
+            if ($subTotal <= 0) {
+                $subTotal = max(0, $montoTotal - $descuento);
+            }
+
+            $tarifa = (float) ($linea['Impuesto']['Tarifa'] ?? 0);
+            $impMonto = (float) ($linea['Impuesto']['Monto'] ?? 0);
+            if ($impMonto <= 0 && $tarifa > 0) {
+                $impMonto = $subTotal * ($tarifa / 100);
+            }
+
+            $montoTotalLinea = (float) ($linea['MontoTotalLinea'] ?? 0);
+            if ($montoTotalLinea <= 0) {
+                $montoTotalLinea = $subTotal + $impMonto;
+            }
+
             EmisionLinea::updateOrCreate(
                 [
                     'id_emision'  => $emision->id_emision,
                     'NumeroLinea' => $linea['NumeroLinea'] ?? 0,
                 ],
                 [
-                    'Codigo'                      => $linea['CodigoCABYS'] ?? $linea['Codigo'] ?? '',
-                    'Cantidad'                    => $linea['Cantidad'] ?? 0,
-                    'UnidadMedida'                => $linea['UnidadMedida'] ?? 'Unid',
-                    'Detalle'                     => $linea['Detalle'] ?? '',
-                    'PrecioUnitario'              => $linea['PrecioUnitario'] ?? 0,
-                    'MontoTotal'                  => $linea['MontoTotal'] ?? 0,
-                    'SubTotal'                    => $linea['SubTotal'] ?? 0,
-                    'MontoTotalLinea'             => $linea['MontoTotalLinea'] ?? 0,
-                    'Impuesto_Codigo'             => $linea['Impuesto']['Codigo'] ?? null,
-                    'Impuesto_CodigoTarifa'       => $linea['Impuesto']['CodigoTarifaIVA'] ?? $linea['Impuesto']['CodigoTarifa'] ?? null,
-                    'Impuesto_Tarifa'             => $linea['Impuesto']['Tarifa'] ?? 0,
-                    'Impuesto_Monto'              => $linea['Impuesto']['Monto'] ?? 0,
+                    'Codigo'                        => $linea['CodigoCABYS'] ?? $linea['Codigo'] ?? '',
+                    'Cantidad'                      => $cantidad,
+                    'UnidadMedida'                  => $linea['UnidadMedida'] ?? 'Unid',
+                    'Detalle'                       => $linea['Detalle'] ?? '',
+                    'PrecioUnitario'                => $precioUnitario,
+                    'MontoTotal'                    => $montoTotal,
+                    'Descuento_MontoDescuento'      => $descuento,
+                    'Descuento_NaturalezaDescuento' => $linea['Descuento']['NaturalezaDescuento'] ?? null,
+                    'SubTotal'                      => $subTotal,
+                    'BaseImponible'                 => $linea['BaseImponible'] ?? null,
+                    'MontoTotalLinea'               => $montoTotalLinea,
+                    'Impuesto_Codigo'               => $linea['Impuesto']['Codigo'] ?? null,
+                    'Impuesto_CodigoTarifa'         => $linea['Impuesto']['CodigoTarifaIVA'] ?? $linea['Impuesto']['CodigoTarifa'] ?? null,
+                    'Impuesto_Tarifa'               => $tarifa,
+                    'Impuesto_Monto'                => $impMonto,
+                    'Impuesto_FactorIVA'            => $linea['Impuesto']['FactorIVA'] ?? null,
+                    'Impuesto_Exoneracion_Monto'    => $linea['Impuesto']['Exoneracion']['MontoExoneracion'] ?? null,
+                    'Impuesto_Exoneracion_Tipo'     => $linea['Impuesto']['Exoneracion']['TipoDocumento'] ?? null,
+                    'Impuesto_Exoneracion_Numero'   => $linea['Impuesto']['Exoneracion']['NumeroDocumento'] ?? null,
+                    'PartidaArancelaria'            => $linea['PartidaArancelaria'] ?? null,
                 ]
             );
         }
