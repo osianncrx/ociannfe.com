@@ -3,9 +3,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\User;
 
 use App\Http\Controllers\Controller;
+use App\Models\Emision;
+use App\Models\EmisionLinea;
 use App\Models\Empresa;
 use App\Models\Ambiente;
 use App\Services\FacturacionService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
@@ -232,5 +235,118 @@ class EmpresaController extends Controller
                 'message' => 'No se pudo conectar con el API de Hacienda. Puede ingresar los datos manualmente.',
             ], 503);
         }
+    }
+
+    public function editPlantillaPdf(int $id)
+    {
+        $empresa = Empresa::where('tenant_id', auth()->user()->tenant_id)
+            ->where('id_empresa', $id)
+            ->firstOrFail();
+        return view('user.empresas.plantilla-pdf', compact('empresa'));
+    }
+
+    public function updatePlantillaPdf(Request $request, int $id)
+    {
+        $empresa = Empresa::where('tenant_id', auth()->user()->tenant_id)
+            ->where('id_empresa', $id)
+            ->firstOrFail();
+
+        $request->validate([
+            'pdf_logo'                 => 'nullable|image|max:2048',
+            'pdf_encabezado'           => 'nullable|string|max:1000',
+            'pdf_pie_pagina'           => 'nullable|string|max:2000',
+            'pdf_color_primario'       => 'nullable|string|max:7',
+            'pdf_mostrar_comentarios'  => 'nullable',
+        ]);
+
+        $data = $request->only(['pdf_encabezado', 'pdf_pie_pagina', 'pdf_color_primario']);
+        $data['pdf_mostrar_comentarios'] = $request->has('pdf_mostrar_comentarios');
+
+        if ($request->hasFile('pdf_logo')) {
+            $file = $request->file('pdf_logo');
+            $mime = $file->getMimeType();
+            $content = file_get_contents($file->getRealPath());
+            $data['pdf_logo'] = 'data:' . $mime . ';base64,' . base64_encode($content);
+        }
+
+        if ($request->has('eliminar_logo') && $request->eliminar_logo) {
+            $data['pdf_logo'] = null;
+        }
+
+        $empresa->update($data);
+
+        return redirect()->route('empresas.plantilla-pdf', $empresa->id_empresa)
+            ->with('success', 'Plantilla PDF actualizada exitosamente.');
+    }
+
+    public function previewPlantillaPdf(int $id)
+    {
+        $empresa = Empresa::where('tenant_id', auth()->user()->tenant_id)
+            ->where('id_empresa', $id)
+            ->firstOrFail();
+
+        $comprobante = new Emision([
+            'NumeroConsecutivo' => '00100001010000000001',
+            'clave' => '50617022600310293428500100001010000000001199999999',
+            'FechaEmision' => now(),
+            'Emisor_Nombre' => $empresa->Nombre,
+            'Emisor_TipoIdentificacion' => $empresa->Tipo,
+            'Emisor_NumeroIdentificacion' => $empresa->cedula,
+            'Emisor_CorreoElectronico' => $empresa->CorreoElectronico,
+            'Receptor_Nombre' => 'Cliente de Ejemplo S.A.',
+            'Receptor_TipoIdentificacion' => '02',
+            'Receptor_NumeroIdentificacion' => '3101234567',
+            'Receptor_CorreoElectronico' => 'cliente@ejemplo.com',
+            'Receptor_OtrasSenas' => 'San José, Costa Rica',
+            'CondicionVenta' => '01',
+            'MedioPago' => '02',
+            'TotalGravado' => 100000,
+            'TotalExento' => 0,
+            'TotalVenta' => 100000,
+            'TotalDescuentos' => 0,
+            'TotalVentaNeta' => 100000,
+            'TotalImpuesto' => 13000,
+            'TotalComprobante' => 113000,
+        ]);
+
+        $linea1 = new EmisionLinea([
+            'NumeroLinea' => 1,
+            'Codigo' => 'PROD001',
+            'Detalle' => 'Producto de ejemplo A',
+            'Cantidad' => 2,
+            'UnidadMedida' => 'Unidad',
+            'PrecioUnitario' => 25000,
+            'MontoTotal' => 50000,
+            'SubTotal' => 50000,
+            'Impuesto_Codigo' => '01',
+            'Impuesto_CodigoTarifa' => '08',
+            'Impuesto_Tarifa' => 13,
+            'Impuesto_Monto' => 6500,
+            'MontoTotalLinea' => 56500,
+        ]);
+
+        $linea2 = new EmisionLinea([
+            'NumeroLinea' => 2,
+            'Codigo' => 'SERV002',
+            'Detalle' => 'Servicio de ejemplo B',
+            'Cantidad' => 1,
+            'UnidadMedida' => 'Sp',
+            'PrecioUnitario' => 50000,
+            'MontoTotal' => 50000,
+            'SubTotal' => 50000,
+            'Impuesto_Codigo' => '01',
+            'Impuesto_CodigoTarifa' => '08',
+            'Impuesto_Tarifa' => 13,
+            'Impuesto_Monto' => 6500,
+            'MontoTotalLinea' => 56500,
+        ]);
+
+        $comprobante->setRelation('lineas', collect([$linea1, $linea2]));
+        $comprobante->setRelation('empresa', $empresa);
+
+        $pdf = Pdf::loadView('pdf.comprobante', compact('comprobante', 'empresa'))
+            ->setPaper('letter');
+
+        return $pdf->stream('Vista_Previa_' . $empresa->Nombre . '.pdf');
     }
 }

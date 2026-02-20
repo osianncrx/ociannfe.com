@@ -38,7 +38,19 @@ class Empresa extends Model
         'CodigoPais',
         'NumTelefono',
         'CodigoActividad',
+        'pdf_logo',
+        'pdf_encabezado',
+        'pdf_pie_pagina',
+        'pdf_color_primario',
+        'pdf_mostrar_comentarios',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'pdf_mostrar_comentarios' => 'boolean',
+        ];
+    }
 
     protected $hidden = [
         'usuario_mh',

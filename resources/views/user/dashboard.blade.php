@@ -95,7 +95,7 @@
                         <td>{{ $emision->receptor_nombre ?? 'N/A' }}</td>
                         <td class="text-end">₡{{ number_format($emision->total_comprobante, 2) }}</td>
                         <td><span class="badge bg-{{ $emision->estado_badge }}">{{ $emision->estado_texto }}</span></td>
-                        <td>{{ $emision->created_at->format('d/m/Y H:i') }}</td>
+                        <td>{{ $emision->created_at?->format('d/m/Y H:i') ?? 'N/A' }}</td>
                     </tr>
                     @empty
                     <tr>

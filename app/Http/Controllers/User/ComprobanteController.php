@@ -8,6 +8,7 @@ use App\Models\Empresa;
 use App\Services\FacturacionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -51,21 +52,36 @@ class ComprobanteController extends Controller
         return view('user.comprobantes.index', compact('comprobantes', 'empresas'));
     }
 
-    public function create()
+    public function create(Request $request)
     {
-        $empresas = Empresa::where('tenant_id', auth()->user()->tenant_id)->get();
-        return view('user.comprobantes.create', compact('empresas'));
+        $tenantId = auth()->user()->tenant_id;
+        $empresas = Empresa::where('tenant_id', $tenantId)->get();
+        $refComprobante = null;
+        $tipoNota = null;
+
+        if ($request->filled('ref') && $request->filled('tipo_nota')) {
+            $tipoNota = in_array($request->tipo_nota, ['02', '03']) ? $request->tipo_nota : null;
+
+            if ($tipoNota) {
+                $refComprobante = Emision::where('tenant_id', $tenantId)
+                    ->where('id_emision', $request->ref)
+                    ->with('lineas')
+                    ->first();
+            }
+        }
+
+        return view('user.comprobantes.create', compact('empresas', 'refComprobante', 'tipoNota'));
     }
 
     public function store(Request $request)
     {
-        $request->validate([
+        $rules = [
             'id_empresa'         => 'required|integer',
-            'tipo_documento'     => 'required|string|in:01,02,03,04,08,09',
+            'tipo_documento'     => 'required|string|in:01,02,03,04,08,09,10',
             'condicion_venta'    => 'required|string|in:01,02,03,04,05,06,07,08,09,99',
-            'medio_pago'         => 'required|string|in:01,02,03,04,05,99',
+            'medio_pago'         => 'required|string|in:01,02,03,04,05,06,99',
             'receptor_nombre'    => 'required|string|max:255',
-            'receptor_tipo_id'   => 'nullable|string|in:01,02,03,04',
+            'receptor_tipo_id'   => 'nullable|string|in:01,02,03,04,05',
             'receptor_numero_id' => 'nullable|string|max:12',
             'receptor_email'     => 'nullable|email|max:255',
             'lineas'             => 'required|array|min:1',
@@ -75,7 +91,17 @@ class ComprobanteController extends Controller
             'lineas.*.codigo_cabys'     => 'nullable|string|max:20',
             'lineas.*.unidad'           => 'required|string|max:20',
             'lineas.*.tarifa_iva'       => 'required|numeric|min:0|max:100',
-        ], [
+        ];
+
+        if (in_array($request->tipo_documento, ['02', '03'])) {
+            $rules['ref_tipo_doc'] = 'required|string|in:01,02,03,04,08,09,10,99';
+            $rules['ref_numero']   = 'required|string|max:50';
+            $rules['ref_fecha']    = 'required|date';
+            $rules['ref_codigo']   = 'required|string|in:01,02,03,04,05,99';
+            $rules['ref_razon']    = 'required|string|max:180';
+        }
+
+        $request->validate($rules, [
             'id_empresa.required'              => 'Seleccione una empresa emisora.',
             'tipo_documento.required'          => 'Seleccione el tipo de documento.',
             'condicion_venta.required'         => 'Seleccione la condición de venta.',
@@ -86,6 +112,9 @@ class ComprobanteController extends Controller
             'lineas.*.detalle.required'        => 'El detalle de cada línea es obligatorio.',
             'lineas.*.cantidad.required'       => 'La cantidad es obligatoria.',
             'lineas.*.precio_unitario.required'=> 'El precio unitario es obligatorio.',
+            'ref_numero.required'              => 'La clave del documento de referencia es obligatoria para Notas.',
+            'ref_fecha.required'               => 'La fecha del documento de referencia es obligatoria.',
+            'ref_razon.required'               => 'La razón de la nota es obligatoria.',
         ]);
 
         $tenantId = auth()->user()->tenant_id;
@@ -157,6 +186,20 @@ class ComprobanteController extends Controller
             'Lineas'          => $lineas,
         ];
 
+        if (in_array($request->tipo_documento, ['02', '03']) && $request->filled('ref_numero')) {
+            $refFecha = $request->ref_fecha;
+            if ($refFecha && !str_contains($refFecha, 'T')) {
+                $refFecha = \Carbon\Carbon::parse($refFecha)->setTimezone('America/Costa_Rica')->format('c');
+            }
+            $comprobanteData['InformacionReferencia'] = [
+                'TipoDoc'       => $request->ref_tipo_doc,
+                'Numero'        => $request->ref_numero,
+                'FechaEmision'  => $refFecha,
+                'Codigo'        => $request->ref_codigo,
+                'Razon'         => $request->ref_razon,
+            ];
+        }
+
         try {
             $result = $this->facturacionService->enviarComprobante(
                 $comprobanteData,
@@ -187,9 +230,21 @@ class ComprobanteController extends Controller
     {
         $comprobante = Emision::where('tenant_id', auth()->user()->tenant_id)
             ->where('id_emision', $id)
-            ->with('lineas')
+            ->with(['lineas', 'empresa'])
             ->firstOrFail();
-        return view('user.comprobantes.show', compact('comprobante'));
+
+        $xmlRespuesta = null;
+        if ($comprobante->clave && in_array($comprobante->estado, [Emision::ESTADO_ACEPTADO, Emision::ESTADO_RECHAZADO])) {
+            try {
+                $xmlRespuesta = $this->facturacionService->cogerXml(
+                    (string) $comprobante->clave, 'R', 1, $comprobante->id_empresa
+                );
+            } catch (\Exception $e) {
+                Log::warning("No se pudo obtener XML respuesta para clave {$comprobante->clave}: " . $e->getMessage());
+            }
+        }
+
+        return view('user.comprobantes.show', compact('comprobante', 'xmlRespuesta'));
     }
 
     public function procesarEnvio(string $id)
@@ -341,5 +396,22 @@ class ComprobanteController extends Controller
                 'results' => [],
             ], 503);
         }
+    }
+
+    public function pdf(string $id)
+    {
+        $comprobante = Emision::where('tenant_id', auth()->user()->tenant_id)
+            ->where('id_emision', $id)
+            ->with(['lineas', 'empresa'])
+            ->firstOrFail();
+
+        $empresa = $comprobante->empresa;
+
+        $pdf = Pdf::loadView('pdf.comprobante', compact('comprobante', 'empresa'))
+            ->setPaper('letter');
+
+        $filename = ($comprobante->tipo_documento_texto ?? 'Comprobante') . '_' . $comprobante->NumeroConsecutivo . '.pdf';
+
+        return $pdf->stream($filename);
     }
 }

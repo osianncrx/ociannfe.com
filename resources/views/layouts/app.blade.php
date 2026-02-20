@@ -52,6 +52,9 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url('/recepciones') }}"><i class="fas fa-inbox me-1"></i>Recepciones</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url('/declaraciones') }}"><i class="fas fa-file-invoice-dollar me-1"></i>Declaraciones</a>
+                    </li>
                     @if(auth()->user()->isAdmin())
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="adminDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -111,6 +114,7 @@
                     <a class="nav-link py-2" href="{{ url('/empresas') }}"><i class="fas fa-building me-2"></i>Empresas</a>
                     <a class="nav-link py-2" href="{{ url('/comprobantes') }}"><i class="fas fa-receipt me-2"></i>Comprobantes</a>
                     <a class="nav-link py-2" href="{{ url('/recepciones') }}"><i class="fas fa-inbox me-2"></i>Recepciones</a>
+                    <a class="nav-link py-2" href="{{ url('/declaraciones') }}"><i class="fas fa-file-invoice-dollar me-2"></i>Declaraciones</a>
                 </nav>
             </div>
             <div class="col-md-9 col-lg-10">

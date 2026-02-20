@@ -57,6 +57,8 @@ class Emision extends Model
         'estado',
         'mensaje',
         'xml_comprobante',
+        'declarado',
+        'id_declaracion',
     ];
 
     protected function casts(): array
@@ -73,6 +75,7 @@ class Emision extends Model
             'TotalImpuesto' => 'decimal:2',
             'TotalComprobante' => 'decimal:2',
             'estado' => 'integer',
+            'declarado' => 'integer',
         ];
     }
 
@@ -113,5 +116,40 @@ class Emision extends Model
             5 => 'danger',
             default => 'secondary',
         };
+    }
+
+    public function getTipoDocumentoAttribute(): ?string
+    {
+        $consecutivo = $this->NumeroConsecutivo;
+        if ($consecutivo && strlen($consecutivo) >= 10) {
+            return substr($consecutivo, 8, 2);
+        }
+        return null;
+    }
+
+    public function getTipoDocumentoTextoAttribute(): string
+    {
+        return match ($this->tipo_documento) {
+            '01' => 'Factura Electrónica',
+            '02' => 'Nota de Débito',
+            '03' => 'Nota de Crédito',
+            '04' => 'Tiquete Electrónico',
+            '08' => 'Factura Compra',
+            '09' => 'Factura Exportación',
+            '10' => 'Recibo Electrónico de Pago',
+            default => 'Documento',
+        };
+    }
+
+    public function permiteNotaCredito(): bool
+    {
+        return $this->estado === self::ESTADO_ACEPTADO
+            && in_array($this->tipo_documento, ['01', '02', '04', '08', '09']);
+    }
+
+    public function permiteNotaDebito(): bool
+    {
+        return $this->estado === self::ESTADO_ACEPTADO
+            && in_array($this->tipo_documento, ['01', '03', '04', '08', '09']);
     }
 }

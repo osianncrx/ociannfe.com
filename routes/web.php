@@ -10,6 +10,7 @@ use App\Http\Controllers\User\DashboardController;
 use App\Http\Controllers\User\EmpresaController;
 use App\Http\Controllers\User\ComprobanteController;
 use App\Http\Controllers\User\RecepcionController;
+use App\Http\Controllers\User\DeclaracionController;
 use App\Http\Controllers\User\ApiKeyController;
 use App\Http\Controllers\User\ProfileController;
 use App\Http\Controllers\Admin\AdminDashboardController;
@@ -49,12 +50,20 @@ Route::middleware(['auth'])->group(function () {
 
     Route::post('/empresas/lookup-cedula', [EmpresaController::class, 'lookupCedula'])->name('empresas.lookup-cedula');
     Route::post('/empresas/{id}/verificar-credenciales', [EmpresaController::class, 'verificarCredenciales'])->name('empresas.verificar-credenciales');
+    Route::get('/empresas/{id}/plantilla-pdf', [EmpresaController::class, 'editPlantillaPdf'])->name('empresas.plantilla-pdf');
+    Route::put('/empresas/{id}/plantilla-pdf', [EmpresaController::class, 'updatePlantillaPdf'])->name('empresas.plantilla-pdf.update');
+    Route::get('/empresas/{id}/plantilla-pdf/preview', [EmpresaController::class, 'previewPlantillaPdf'])->name('empresas.plantilla-pdf.preview');
     Route::resource('empresas', EmpresaController::class);
     Route::resource('comprobantes', ComprobanteController::class)->only(['index', 'show', 'create', 'store']);
     Route::post('/comprobantes/{id}/procesar-envio', [ComprobanteController::class, 'procesarEnvio'])->name('comprobantes.procesar-envio');
     Route::post('/comprobantes/{id}/consultar-estado', [ComprobanteController::class, 'consultarEstado'])->name('comprobantes.consultar-estado');
+    Route::get('/comprobantes/{id}/pdf', [ComprobanteController::class, 'pdf'])->name('comprobantes.pdf');
     Route::post('/comprobantes/buscar-cabys', [ComprobanteController::class, 'buscarCabys'])->name('comprobantes.buscar-cabys');
+    Route::post('/recepciones/parsear-xml', [RecepcionController::class, 'parsearXml'])->name('recepciones.parsear-xml');
+    Route::post('/recepciones/parsear-xml-multiple', [RecepcionController::class, 'parsearXmlMultiple'])->name('recepciones.parsear-xml-multiple');
+    Route::post('/recepciones/store-masivo', [RecepcionController::class, 'storeMasivo'])->name('recepciones.store-masivo');
     Route::resource('recepciones', RecepcionController::class)->only(['index', 'show', 'create', 'store']);
+    Route::resource('declaraciones', DeclaracionController::class)->except(['edit']);
 
     Route::resource('api-keys', ApiKeyController::class)->except(['show', 'edit', 'update']);
 

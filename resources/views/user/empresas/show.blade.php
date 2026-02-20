@@ -6,7 +6,10 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2 class="mb-0"><i class="fas fa-building me-2"></i>Detalle de Empresa</h2>
     <div>
-        <a href="{{ route('empresas.edit', $empresa) }}" class="btn btn-primary">
+        <a href="{{ route('empresas.plantilla-pdf', $empresa->id_empresa) }}" class="btn btn-outline-danger">
+            <i class="fas fa-file-pdf me-1"></i>Plantilla PDF
+        </a>
+        <a href="{{ route('empresas.edit', $empresa) }}" class="btn btn-primary ms-2">
             <i class="fas fa-edit me-1"></i>Editar
         </a>
         <a href="{{ route('empresas.index') }}" class="btn btn-secondary ms-2">

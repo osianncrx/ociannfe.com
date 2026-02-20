@@ -142,6 +142,10 @@ class FacturacionService
             );
         }
 
+        if (!empty($comprobanteData['InformacionReferencia'])) {
+            $haciendaData['InformacionReferencia'] = $comprobanteData['InformacionReferencia'];
+        }
+
         $proveedor = config('facturacion.proveedor_sistemas', '');
         if ($proveedor) {
             $haciendaData['ProveedorSistemas'] = $proveedor;
@@ -227,6 +231,84 @@ class FacturacionService
             Log::error('Error al procesar callback: ' . $e->getMessage());
             throw $e;
         }
+    }
+
+    public function recepcionarDocumento(
+        string $xmlContent,
+        string $clave,
+        int $idEmpresa,
+        string $tipoRespuesta,
+        string $detalleMensaje,
+        string $actividadEconomica,
+        int $tenantId
+    ): array {
+        $empresa = Empresa::where('id_empresa', $idEmpresa)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        $cedReceptor = $empresa->Numero ?? $empresa->cedula ?? '';
+        $tipoIdReceptor = $empresa->Tipo ?? '01';
+
+        $facturador = $this->getFacturador();
+        $facturador->setClientId($empresa->id_cliente);
+
+        $consecutivo = $this->generarConsecutivoRecepcion($idEmpresa, $tipoRespuesta);
+
+        $datos = [
+            'Clave'                       => $clave,
+            'NumeroCedulaReceptor'        => $cedReceptor,
+            'NumeroConsecutivoReceptor'   => $consecutivo,
+            'FechaEmisionDoc'             => now()->setTimezone('America/Costa_Rica')->format('c'),
+            'Mensaje'                     => match ($tipoRespuesta) {
+                '05' => 1,
+                '06' => 2,
+                '07' => 3,
+                default => 1,
+            },
+            'DetalleMensaje'              => $detalleMensaje,
+            'MontoTotalImpuesto'          => '0',
+            'TotalFactura'                => '0',
+        ];
+
+        if ($actividadEconomica) {
+            $datos['CodigoActividad'] = $actividadEconomica;
+        }
+
+        try {
+            $result = $facturador->recepcionar($xmlContent, $datos, $idEmpresa);
+
+            return [
+                'success'      => true,
+                'consecutivo'  => $consecutivo,
+                'message'      => 'Documento recepcionado exitosamente.',
+            ];
+        } catch (Exception $e) {
+            Log::error('Error al recepcionar documento: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    private function generarConsecutivoRecepcion(int $idEmpresa, string $tipoRespuesta): string
+    {
+        $empresa = Empresa::find($idEmpresa);
+        $sucursal = $empresa->sucursal ?? '001';
+        $terminal = '00001';
+
+        $maxConsecutivo = DB::table('fe_recepciones')
+            ->where('id_empresa', $idEmpresa)
+            ->whereNotNull('respuesta_consecutivo')
+            ->where('respuesta_consecutivo', '!=', '')
+            ->whereRaw("LENGTH(respuesta_consecutivo) >= 10")
+            ->whereRaw("respuesta_consecutivo REGEXP '^[0-9]+$'")
+            ->max(DB::raw('CAST(RIGHT(respuesta_consecutivo, 10) AS UNSIGNED)'));
+
+        $nuevoConsecutivo = ($maxConsecutivo ?? 0) + 1;
+        $consecutivoStr = str_pad((string) $nuevoConsecutivo, 10, '0', STR_PAD_LEFT);
+
+        return $sucursal . $terminal . $tipoRespuesta . $consecutivoStr;
     }
 
     public function guardarEmpresa(array $datos, int $idEmpresa = 0): int

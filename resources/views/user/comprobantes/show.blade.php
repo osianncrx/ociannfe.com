@@ -20,6 +20,12 @@
                 <div class="row">
                     <div class="col-md-6">
                         <dl class="row mb-0">
+                            <dt class="col-sm-4">Tipo</dt>
+                            <dd class="col-sm-8">
+                                <span class="badge bg-primary">{{ $comprobante->tipo_documento ?? '—' }}</span>
+                                {{ $comprobante->tipo_documento_texto }}
+                            </dd>
+
                             <dt class="col-sm-4">Clave</dt>
                             <dd class="col-sm-8"><code class="small">{{ $comprobante->clave }}</code></dd>
 
@@ -203,6 +209,22 @@
         </form>
     @endif
 
+    @if($comprobante->permiteNotaCredito())
+        <a href="{{ route('comprobantes.create', ['ref' => $comprobante->id_emision, 'tipo_nota' => '03']) }}" class="btn btn-success">
+            <i class="fas fa-minus-circle me-1"></i>Crear Nota de Crédito
+        </a>
+    @endif
+
+    @if($comprobante->permiteNotaDebito())
+        <a href="{{ route('comprobantes.create', ['ref' => $comprobante->id_emision, 'tipo_nota' => '02']) }}" class="btn btn-danger">
+            <i class="fas fa-plus-circle me-1"></i>Crear Nota de Débito
+        </a>
+    @endif
+
+    <a href="{{ route('comprobantes.pdf', $comprobante->id_emision) }}" class="btn btn-outline-danger" target="_blank">
+        <i class="fas fa-file-pdf me-1"></i>Descargar PDF
+    </a>
+
     @if($comprobante->clave)
     <a href="{{ route('comprobantes.xml', $comprobante->clave) }}" class="btn btn-outline-primary" target="_blank">
         <i class="fas fa-code me-1"></i>Ver XML
@@ -213,4 +235,74 @@
         <i class="fas fa-arrow-left me-1"></i>Volver a la lista
     </a>
 </div>
+
+@if($comprobante->xml_comprobante)
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-code me-2"></i>XML del Comprobante</h5>
+        <div>
+            <button type="button" class="btn btn-sm btn-outline-secondary btn-copiar-xml" data-target="xml-comprobante-content" title="Copiar XML">
+                <i class="fas fa-copy me-1"></i>Copiar
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary btn-descargar-xml" data-target="xml-comprobante-content" data-filename="{{ $comprobante->clave }}.xml" title="Descargar XML">
+                <i class="fas fa-download me-1"></i>Descargar
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <pre class="mb-0 p-3 bg-light" style="max-height: 400px; overflow: auto; font-size: 0.8rem; white-space: pre-wrap; word-wrap: break-word;"><code id="xml-comprobante-content">{{ $comprobante->xml_comprobante }}</code></pre>
+    </div>
+</div>
+@endif
+
+@if(!empty($xmlRespuesta))
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-reply me-2"></i>XML Respuesta de Hacienda</h5>
+        <div>
+            <button type="button" class="btn btn-sm btn-outline-secondary btn-copiar-xml" data-target="xml-respuesta-content" title="Copiar XML">
+                <i class="fas fa-copy me-1"></i>Copiar
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary btn-descargar-xml" data-target="xml-respuesta-content" data-filename="{{ $comprobante->clave }}-respuesta.xml" title="Descargar XML">
+                <i class="fas fa-download me-1"></i>Descargar
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <pre class="mb-0 p-3 bg-light" style="max-height: 400px; overflow: auto; font-size: 0.8rem; white-space: pre-wrap; word-wrap: break-word;"><code id="xml-respuesta-content">{{ $xmlRespuesta }}</code></pre>
+    </div>
+</div>
+@endif
 @endsection
+
+@push('scripts')
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.btn-copiar-xml').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var content = document.getElementById(this.dataset.target).textContent;
+            var self = this;
+            navigator.clipboard.writeText(content).then(function () {
+                self.innerHTML = '<i class="fas fa-check me-1"></i>Copiado';
+                setTimeout(function () { self.innerHTML = '<i class="fas fa-copy me-1"></i>Copiar'; }, 2000);
+            });
+        });
+    });
+
+    document.querySelectorAll('.btn-descargar-xml').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var content = document.getElementById(this.dataset.target).textContent;
+            var blob = new Blob([content], { type: 'application/xml' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = this.dataset.filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    });
+});
+</script>
+@endpush

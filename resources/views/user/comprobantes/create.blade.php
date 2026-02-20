@@ -1,11 +1,30 @@
 @extends('layouts.app')
 
-@section('title', 'Emitir Comprobante')
+@section('title', isset($refComprobante) && $tipoNota === '03' ? 'Emitir Nota de Crédito' : (isset($refComprobante) && $tipoNota === '02' ? 'Emitir Nota de Débito' : 'Emitir Comprobante'))
 
 @section('content')
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="mb-0"><i class="fas fa-file-invoice me-2"></i>Emitir Comprobante</h2>
+    @if(isset($refComprobante) && $tipoNota)
+        <h2 class="mb-0">
+            <i class="fas fa-file-invoice me-2"></i>
+            Emitir {{ $tipoNota === '03' ? 'Nota de Crédito' : 'Nota de Débito' }}
+        </h2>
+    @else
+        <h2 class="mb-0"><i class="fas fa-file-invoice me-2"></i>Emitir Comprobante</h2>
+    @endif
 </div>
+
+@if(isset($refComprobante) && $tipoNota)
+<div class="alert alert-{{ $tipoNota === '03' ? 'success' : 'danger' }} d-flex align-items-center mb-4" role="alert">
+    <i class="fas fa-{{ $tipoNota === '03' ? 'minus-circle' : 'plus-circle' }} fa-2x me-3"></i>
+    <div>
+        <strong>{{ $tipoNota === '03' ? 'Nota de Crédito' : 'Nota de Débito' }}</strong> referenciando el comprobante:
+        <code>{{ $refComprobante->clave }}</code>
+        <br>
+        <small>Receptor: {{ $refComprobante->Receptor_Nombre }} — Total: ₡{{ number_format((float)($refComprobante->TotalComprobante ?? 0), 2) }}</small>
+    </div>
+</div>
+@endif
 
 <div id="receptor-alert" class="alert alert-info alert-dismissible fade d-none" role="alert">
     <i class="fas fa-check-circle me-2"></i><span id="receptor-alert-text"></span>
@@ -42,7 +61,7 @@
                     <select class="form-select @error('id_empresa') is-invalid @enderror" id="id_empresa" name="id_empresa" required>
                         <option value="">Seleccione...</option>
                         @foreach($empresas ?? [] as $empresa)
-                            <option value="{{ $empresa->id_empresa }}" {{ old('id_empresa') == $empresa->id_empresa ? 'selected' : '' }}>
+                            <option value="{{ $empresa->id_empresa }}" {{ old('id_empresa', isset($refComprobante) ? $refComprobante->id_empresa : '') == $empresa->id_empresa ? 'selected' : '' }}>
                                 {{ $empresa->Nombre }} ({{ $empresa->cedula }})
                             </option>
                         @endforeach
@@ -53,14 +72,16 @@
                 </div>
                 <div class="col-md-3">
                     <label for="tipo_documento" class="form-label">Tipo Documento</label>
+                    @php $defaultTipoDoc = old('tipo_documento', $tipoNota ?? '01'); @endphp
                     <select class="form-select @error('tipo_documento') is-invalid @enderror" id="tipo_documento" name="tipo_documento" required>
                         <option value="">Seleccione...</option>
-                        <option value="01" {{ old('tipo_documento', '01') == '01' ? 'selected' : '' }}>01 - Factura Electrónica</option>
-                        <option value="02" {{ old('tipo_documento') == '02' ? 'selected' : '' }}>02 - Nota de Débito</option>
-                        <option value="03" {{ old('tipo_documento') == '03' ? 'selected' : '' }}>03 - Nota de Crédito</option>
-                        <option value="04" {{ old('tipo_documento') == '04' ? 'selected' : '' }}>04 - Tiquete Electrónico</option>
-                        <option value="08" {{ old('tipo_documento') == '08' ? 'selected' : '' }}>08 - Factura Compra</option>
-                        <option value="09" {{ old('tipo_documento') == '09' ? 'selected' : '' }}>09 - Factura Exportación</option>
+                        <option value="01" {{ $defaultTipoDoc == '01' ? 'selected' : '' }}>01 - Factura Electrónica</option>
+                        <option value="02" {{ $defaultTipoDoc == '02' ? 'selected' : '' }}>02 - Nota de Débito</option>
+                        <option value="03" {{ $defaultTipoDoc == '03' ? 'selected' : '' }}>03 - Nota de Crédito</option>
+                        <option value="04" {{ $defaultTipoDoc == '04' ? 'selected' : '' }}>04 - Tiquete Electrónico</option>
+                        <option value="08" {{ $defaultTipoDoc == '08' ? 'selected' : '' }}>08 - Factura Compra</option>
+                        <option value="09" {{ $defaultTipoDoc == '09' ? 'selected' : '' }}>09 - Factura Exportación</option>
+                        <option value="10" {{ $defaultTipoDoc == '10' ? 'selected' : '' }}>10 - Recibo Electrónico de Pago</option>
                     </select>
                     @error('tipo_documento')
                         <div class="invalid-feedback">{{ $message }}</div>
@@ -68,18 +89,19 @@
                 </div>
                 <div class="col-md-3">
                     <label for="condicion_venta" class="form-label">Condición Venta</label>
+                    @php $defaultCondVenta = old('condicion_venta', isset($refComprobante) ? $refComprobante->CondicionVenta : '01'); @endphp
                     <select class="form-select @error('condicion_venta') is-invalid @enderror" id="condicion_venta" name="condicion_venta" required>
                         <option value="">Seleccione...</option>
-                        <option value="01" {{ old('condicion_venta', '01') == '01' ? 'selected' : '' }}>01 - Contado</option>
-                        <option value="02" {{ old('condicion_venta') == '02' ? 'selected' : '' }}>02 - Crédito</option>
-                        <option value="03" {{ old('condicion_venta') == '03' ? 'selected' : '' }}>03 - Consignación</option>
-                        <option value="04" {{ old('condicion_venta') == '04' ? 'selected' : '' }}>04 - Apartado</option>
-                        <option value="05" {{ old('condicion_venta') == '05' ? 'selected' : '' }}>05 - Arrendamiento opción compra</option>
-                        <option value="06" {{ old('condicion_venta') == '06' ? 'selected' : '' }}>06 - Arrendamiento función financiera</option>
-                        <option value="07" {{ old('condicion_venta') == '07' ? 'selected' : '' }}>07 - Cobro a favor de un tercero</option>
-                        <option value="08" {{ old('condicion_venta') == '08' ? 'selected' : '' }}>08 - Servicios prestados al Estado</option>
-                        <option value="09" {{ old('condicion_venta') == '09' ? 'selected' : '' }}>09 - Pago del servicios prestado al Estado</option>
-                        <option value="99" {{ old('condicion_venta') == '99' ? 'selected' : '' }}>99 - Otros</option>
+                        <option value="01" {{ $defaultCondVenta == '01' ? 'selected' : '' }}>01 - Contado</option>
+                        <option value="02" {{ $defaultCondVenta == '02' ? 'selected' : '' }}>02 - Crédito</option>
+                        <option value="03" {{ $defaultCondVenta == '03' ? 'selected' : '' }}>03 - Consignación</option>
+                        <option value="04" {{ $defaultCondVenta == '04' ? 'selected' : '' }}>04 - Apartado</option>
+                        <option value="05" {{ $defaultCondVenta == '05' ? 'selected' : '' }}>05 - Arrendamiento opción compra</option>
+                        <option value="06" {{ $defaultCondVenta == '06' ? 'selected' : '' }}>06 - Arrendamiento función financiera</option>
+                        <option value="07" {{ $defaultCondVenta == '07' ? 'selected' : '' }}>07 - Cobro a favor de un tercero</option>
+                        <option value="08" {{ $defaultCondVenta == '08' ? 'selected' : '' }}>08 - Servicios prestados al Estado</option>
+                        <option value="09" {{ $defaultCondVenta == '09' ? 'selected' : '' }}>09 - Pago del servicios prestado al Estado</option>
+                        <option value="99" {{ $defaultCondVenta == '99' ? 'selected' : '' }}>99 - Otros</option>
                     </select>
                     @error('condicion_venta')
                         <div class="invalid-feedback">{{ $message }}</div>
@@ -87,14 +109,16 @@
                 </div>
                 <div class="col-md-3">
                     <label for="medio_pago" class="form-label">Medio de Pago</label>
+                    @php $defaultMedioPago = old('medio_pago', isset($refComprobante) ? $refComprobante->MedioPago : ''); @endphp
                     <select class="form-select @error('medio_pago') is-invalid @enderror" id="medio_pago" name="medio_pago" required>
                         <option value="">Seleccione...</option>
-                        <option value="01" {{ old('medio_pago') == '01' ? 'selected' : '' }}>01 - Efectivo</option>
-                        <option value="02" {{ old('medio_pago') == '02' ? 'selected' : '' }}>02 - Tarjeta</option>
-                        <option value="03" {{ old('medio_pago') == '03' ? 'selected' : '' }}>03 - Cheque</option>
-                        <option value="04" {{ old('medio_pago') == '04' ? 'selected' : '' }}>04 - Transferencia / SINPE</option>
-                        <option value="05" {{ old('medio_pago') == '05' ? 'selected' : '' }}>05 - Recaudado por terceros</option>
-                        <option value="99" {{ old('medio_pago') == '99' ? 'selected' : '' }}>99 - Otros</option>
+                        <option value="01" {{ $defaultMedioPago == '01' ? 'selected' : '' }}>01 - Efectivo</option>
+                        <option value="02" {{ $defaultMedioPago == '02' ? 'selected' : '' }}>02 - Tarjeta</option>
+                        <option value="03" {{ $defaultMedioPago == '03' ? 'selected' : '' }}>03 - Cheque</option>
+                        <option value="04" {{ $defaultMedioPago == '04' ? 'selected' : '' }}>04 - Transferencia / SINPE</option>
+                        <option value="05" {{ $defaultMedioPago == '05' ? 'selected' : '' }}>05 - Recaudado por terceros</option>
+                        <option value="06" {{ $defaultMedioPago == '06' ? 'selected' : '' }}>06 - SINPE Móvil</option>
+                        <option value="99" {{ $defaultMedioPago == '99' ? 'selected' : '' }}>99 - Otros</option>
                     </select>
                     @error('medio_pago')
                         <div class="invalid-feedback">{{ $message }}</div>
@@ -112,12 +136,14 @@
             <div class="row g-3">
                 <div class="col-md-2">
                     <label for="receptor_tipo_id" class="form-label">Tipo ID</label>
+                    @php $defaultRecTipo = old('receptor_tipo_id', isset($refComprobante) ? $refComprobante->Receptor_TipoIdentificacion : ''); @endphp
                     <select class="form-select @error('receptor_tipo_id') is-invalid @enderror" id="receptor_tipo_id" name="receptor_tipo_id">
                         <option value="">Sin ID</option>
-                        <option value="01" {{ old('receptor_tipo_id') == '01' ? 'selected' : '' }}>01 - Física</option>
-                        <option value="02" {{ old('receptor_tipo_id') == '02' ? 'selected' : '' }}>02 - Jurídica</option>
-                        <option value="03" {{ old('receptor_tipo_id') == '03' ? 'selected' : '' }}>03 - DIMEX</option>
-                        <option value="04" {{ old('receptor_tipo_id') == '04' ? 'selected' : '' }}>04 - NITE</option>
+                        <option value="01" {{ $defaultRecTipo == '01' ? 'selected' : '' }}>01 - Física</option>
+                        <option value="02" {{ $defaultRecTipo == '02' ? 'selected' : '' }}>02 - Jurídica</option>
+                        <option value="03" {{ $defaultRecTipo == '03' ? 'selected' : '' }}>03 - DIMEX</option>
+                        <option value="04" {{ $defaultRecTipo == '04' ? 'selected' : '' }}>04 - NITE</option>
+                        <option value="05" {{ $defaultRecTipo == '05' ? 'selected' : '' }}>05 - Extranjero</option>
                     </select>
                     @error('receptor_tipo_id')
                         <div class="invalid-feedback">{{ $message }}</div>
@@ -128,7 +154,7 @@
                     <div class="input-group">
                         <input type="text" class="form-control @error('receptor_numero_id') is-invalid @enderror"
                                id="receptor_numero_id" name="receptor_numero_id"
-                               value="{{ old('receptor_numero_id') }}" placeholder="Ej: 3101234567">
+                               value="{{ old('receptor_numero_id', isset($refComprobante) ? $refComprobante->Receptor_NumeroIdentificacion : '') }}" placeholder="Ej: 3101234567">
                         <button type="button" class="btn btn-outline-primary" id="btn-buscar-receptor" title="Consultar en Hacienda">
                             <i class="fas fa-search"></i>
                         </button>
@@ -142,7 +168,7 @@
                     <label for="receptor_nombre" class="form-label">Nombre / Razón Social</label>
                     <input type="text" class="form-control @error('receptor_nombre') is-invalid @enderror"
                            id="receptor_nombre" name="receptor_nombre"
-                           value="{{ old('receptor_nombre') }}" required>
+                           value="{{ old('receptor_nombre', isset($refComprobante) ? $refComprobante->Receptor_Nombre : '') }}" required>
                     @error('receptor_nombre')
                         <div class="invalid-feedback">{{ $message }}</div>
                     @enderror
@@ -151,7 +177,7 @@
                     <label for="receptor_email" class="form-label">Correo Electrónico</label>
                     <input type="email" class="form-control @error('receptor_email') is-invalid @enderror"
                            id="receptor_email" name="receptor_email"
-                           value="{{ old('receptor_email') }}" placeholder="correo@ejemplo.com">
+                           value="{{ old('receptor_email', isset($refComprobante) ? $refComprobante->Receptor_CorreoElectronico : '') }}" placeholder="correo@ejemplo.com">
                     @error('receptor_email')
                         <div class="invalid-feedback">{{ $message }}</div>
                     @enderror
@@ -164,6 +190,70 @@
                         <div class="col-md-4"><strong>Régimen:</strong> <span id="info-regimen">—</span></div>
                         <div class="col-md-4"><strong>Actividad:</strong> <span id="info-actividad">—</span></div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4 d-none" id="card-referencia">
+        <div class="card-header bg-white">
+            <h5 class="mb-0"><i class="fas fa-link me-2"></i>Información de Referencia</h5>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info py-2 mb-3">
+                <i class="fas fa-info-circle me-1"></i>Las Notas de Crédito y Débito requieren referencia al documento original.
+            </div>
+            <div class="row g-3">
+                @php
+                    $defaultRefTipoDoc = old('ref_tipo_doc', isset($refComprobante) ? ($refComprobante->tipo_documento ?? '01') : '01');
+                    $defaultRefNumero = old('ref_numero', isset($refComprobante) ? $refComprobante->clave : '');
+                    $defaultRefFecha = old('ref_fecha', isset($refComprobante) && $refComprobante->FechaEmision ? $refComprobante->FechaEmision->format('Y-m-d\TH:i') : '');
+                @endphp
+                <div class="col-md-2">
+                    <label for="ref_tipo_doc" class="form-label">Tipo Doc. Ref.</label>
+                    <select class="form-select @error('ref_tipo_doc') is-invalid @enderror" id="ref_tipo_doc" name="ref_tipo_doc">
+                        <option value="01" {{ $defaultRefTipoDoc == '01' ? 'selected' : '' }}>01 - Factura Electrónica</option>
+                        <option value="02" {{ $defaultRefTipoDoc == '02' ? 'selected' : '' }}>02 - Nota de Débito</option>
+                        <option value="03" {{ $defaultRefTipoDoc == '03' ? 'selected' : '' }}>03 - Nota de Crédito</option>
+                        <option value="04" {{ $defaultRefTipoDoc == '04' ? 'selected' : '' }}>04 - Tiquete Electrónico</option>
+                        <option value="08" {{ $defaultRefTipoDoc == '08' ? 'selected' : '' }}>08 - Factura Compra</option>
+                        <option value="09" {{ $defaultRefTipoDoc == '09' ? 'selected' : '' }}>09 - Factura Exportación</option>
+                        <option value="10" {{ $defaultRefTipoDoc == '10' ? 'selected' : '' }}>10 - Recibo Electrónico</option>
+                        <option value="99" {{ $defaultRefTipoDoc == '99' ? 'selected' : '' }}>99 - Otros</option>
+                    </select>
+                    @error('ref_tipo_doc')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                </div>
+                <div class="col-md-4">
+                    <label for="ref_numero" class="form-label">Clave / Número Doc. Original</label>
+                    <input type="text" class="form-control @error('ref_numero') is-invalid @enderror"
+                           id="ref_numero" name="ref_numero" value="{{ $defaultRefNumero }}"
+                           placeholder="Clave numérica de 50 dígitos" maxlength="50">
+                    @error('ref_numero')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                </div>
+                <div class="col-md-2">
+                    <label for="ref_fecha" class="form-label">Fecha Emisión Ref.</label>
+                    <input type="datetime-local" class="form-control @error('ref_fecha') is-invalid @enderror"
+                           id="ref_fecha" name="ref_fecha" value="{{ $defaultRefFecha }}">
+                    @error('ref_fecha')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                </div>
+                <div class="col-md-2">
+                    <label for="ref_codigo" class="form-label">Código</label>
+                    <select class="form-select @error('ref_codigo') is-invalid @enderror" id="ref_codigo" name="ref_codigo">
+                        <option value="01" {{ old('ref_codigo', '01') == '01' ? 'selected' : '' }}>01 - Anula documento</option>
+                        <option value="02" {{ old('ref_codigo') == '02' ? 'selected' : '' }}>02 - Corrige texto</option>
+                        <option value="03" {{ old('ref_codigo') == '03' ? 'selected' : '' }}>03 - Aplica descuento</option>
+                        <option value="04" {{ old('ref_codigo') == '04' ? 'selected' : '' }}>04 - Referencia</option>
+                        <option value="05" {{ old('ref_codigo') == '05' ? 'selected' : '' }}>05 - Sustituye</option>
+                        <option value="99" {{ old('ref_codigo') == '99' ? 'selected' : '' }}>99 - Otros</option>
+                    </select>
+                    @error('ref_codigo')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                </div>
+                <div class="col-md-2">
+                    <label for="ref_razon" class="form-label">Razón</label>
+                    <input type="text" class="form-control @error('ref_razon') is-invalid @enderror"
+                           id="ref_razon" name="ref_razon" value="{{ old('ref_razon') }}"
+                           placeholder="Motivo de la nota" maxlength="180">
+                    @error('ref_razon')<div class="invalid-feedback">{{ $message }}</div>@enderror
                 </div>
             </div>
         </div>
@@ -536,12 +626,25 @@ document.addEventListener('DOMContentLoaded', function () {
             '<td>' +
                 '<select class="form-select form-select-sm" name="lineas[' + idx + '][unidad]">' +
                     '<option value="Unid">Unid</option>' +
-                    '<option value="Sp">Sp (Servicio)</option>' +
-                    '<option value="m">m</option>' +
-                    '<option value="kg">kg</option>' +
-                    '<option value="s">s</option>' +
-                    '<option value="l">l</option>' +
-                    '<option value="cm">cm</option>' +
+                    '<option value="Sp">Sp (Servicio Profesional)</option>' +
+                    '<option value="m">m (Metro)</option>' +
+                    '<option value="kg">kg (Kilogramo)</option>' +
+                    '<option value="s">s (Segundo)</option>' +
+                    '<option value="l">l (Litro)</option>' +
+                    '<option value="cm">cm (Centímetro)</option>' +
+                    '<option value="g">g (Gramo)</option>' +
+                    '<option value="km">km (Kilómetro)</option>' +
+                    '<option value="ln">ln (Pulgada)</option>' +
+                    '<option value="m2">m² (Metro cuadrado)</option>' +
+                    '<option value="m3">m³ (Metro cúbico)</option>' +
+                    '<option value="ml">ml (Mililitro)</option>' +
+                    '<option value="mm">mm (Milímetro)</option>' +
+                    '<option value="oz">oz (Onza)</option>' +
+                    '<option value="d">d (Día)</option>' +
+                    '<option value="h">h (Hora)</option>' +
+                    '<option value="min">min (Minuto)</option>' +
+                    '<option value="Kw">Kw (Kilovatio)</option>' +
+                    '<option value="Kwh">Kwh (Kilovatio hora)</option>' +
                     '<option value="Os">Otros</option>' +
                 '</select>' +
             '</td>' +
@@ -609,7 +712,58 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     document.getElementById('btnAgregarLinea').addEventListener('click', agregarLinea);
+
+    // ─── Cargar líneas de referencia si existen ──────────
+    @if(isset($refComprobante) && $refComprobante->lineas && $refComprobante->lineas->count() > 0)
+    var refLineas = @json($refComprobante->lineas->map(fn($l) => [
+        'codigo_cabys' => $l->Codigo ?? '',
+        'detalle' => $l->Detalle ?? '',
+        'cantidad' => (float) $l->Cantidad,
+        'unidad' => $l->UnidadMedida ?? 'Unid',
+        'precio_unitario' => (float) $l->PrecioUnitario,
+        'tarifa_iva' => (float) ($l->Impuesto_Tarifa ?? 0),
+    ]));
+    refLineas.forEach(function(ref) {
+        agregarLinea();
+        var tr = document.querySelector('tr[data-linea="' + (lineaIndex - 1) + '"]');
+        if (!tr) return;
+        if (ref.codigo_cabys) {
+            tr.querySelector('.cabys-code-hidden').value = ref.codigo_cabys;
+            tr.querySelector('.cabys-display').value = ref.codigo_cabys;
+        }
+        tr.querySelector('.linea-detalle').value = ref.detalle;
+        tr.querySelector('.linea-cantidad').value = ref.cantidad;
+        tr.querySelector('.linea-precio').value = ref.precio_unitario;
+        var unidadSelect = tr.querySelector('select[name$="[unidad]"]');
+        for (var o = 0; o < unidadSelect.options.length; o++) {
+            if (unidadSelect.options[o].value === ref.unidad) { unidadSelect.value = ref.unidad; break; }
+        }
+        var ivaSelect = tr.querySelector('.linea-iva');
+        var ivaVal = String(Math.round(ref.tarifa_iva));
+        for (var o = 0; o < ivaSelect.options.length; o++) {
+            if (ivaSelect.options[o].value === ivaVal) { ivaSelect.value = ivaVal; break; }
+        }
+        calcularLinea(tr);
+    });
+    @else
     agregarLinea();
+    @endif
+
+    // ─── Mostrar/ocultar InformacionReferencia ────────────
+    var tipoDocSelect = document.getElementById('tipo_documento');
+    var cardRef = document.getElementById('card-referencia');
+    function toggleReferencia() {
+        var v = tipoDocSelect.value;
+        if (v === '02' || v === '03') {
+            cardRef.classList.remove('d-none');
+            cardRef.querySelectorAll('input, select').forEach(function(el) { el.required = true; });
+        } else {
+            cardRef.classList.add('d-none');
+            cardRef.querySelectorAll('input, select').forEach(function(el) { el.required = false; });
+        }
+    }
+    tipoDocSelect.addEventListener('change', toggleReferencia);
+    toggleReferencia();
 });
 </script>
 @endpush

@@ -38,7 +38,9 @@ Route::prefix('v1')->middleware(['auth:sanctum', LogApiUsage::class])->group(fun
     Route::get('/comprobantes/{clave}/xml', [ComprobanteApiController::class, 'xml']);
 
     Route::get('/recepciones', [RecepcionApiController::class, 'index']);
+    Route::post('/recepciones', [RecepcionApiController::class, 'store']);
     Route::get('/recepciones/{clave}', [RecepcionApiController::class, 'show']);
+    Route::post('/recepciones/{clave}/responder', [RecepcionApiController::class, 'responder']);
 
     Route::get('/cola', [ColaApiController::class, 'index']);
     Route::post('/cola/procesar', [ColaApiController::class, 'procesar']);
